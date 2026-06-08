@@ -1,0 +1,52 @@
+name: Release Anki APKG
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify APKG exists
+        run: |
+          if [ ! -f output/Android面试卡组.apkg ]; then
+            echo "❌ output/Android面试卡组.apkg 不存在！"
+            echo "请先在本地运行 main.py 生成卡片，然后 commit + push。"
+            exit 1
+          fi
+          echo "✅ APKG 文件大小: $(du -h output/Android面试卡组.apkg | cut -f1)"
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Latest - Android 面试卡组"
+          tag_name: latest
+          body: |
+            ## Android 面试 Anki 卡片卡组
+
+            **自动构建于**: ${{ github.event.head_commit.timestamp }}
+
+            ### 卡片统计
+            查看 [output/Android面试卡组.txt](https://github.com/${{ github.repository }}/blob/master/output/Android面试卡组.txt)
+
+            ### 使用方法
+            1. 下载 `Android面试卡组.apkg`
+            2. 打开 Anki → 文件 → 导入 → 选择 .apkg 文件
+            3. 开始复习！
+
+            ### 卡片来源
+            - Android 核心知识点笔记
+            - 阿里巴巴 Android 面试题集
+            - 面试题 TXT 文件
+
+          files: output/Android面试卡组.apkg
+          prerelease: false
+          make_latest: true
