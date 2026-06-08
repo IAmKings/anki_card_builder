@@ -15,6 +15,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set release date
+        id: date
+        run: echo "DATE=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+
       - name: Verify APKG exists
         run: |
           if [ ! -f output/Android面试卡组.apkg ]; then
@@ -27,8 +31,8 @@ jobs:
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "Latest - Android 面试卡组"
-          tag_name: latest
+          name: "Android 面试卡组 - ${{ steps.date.outputs.DATE }}"
+          tag_name: release-${{ steps.date.outputs.DATE }}
           body: |
             ## Android 面试 Anki 卡片卡组
 
