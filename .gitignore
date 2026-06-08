@@ -36,9 +36,16 @@ env/
 output/
 
 # ============================================================
-# Trellis - 项目管理工具，下载者不需要
+# Trellis - 只保留任务记录，其他本地化
 # ============================================================
-.trellis/
+.trellis/.backup-*
+.trellis/worktrees/
+.trellis/.template-hashes.json
+.trellis/.runtime/
+.trellis/.cache/
+.trellis/workspace/
+.trellis/scripts/
+.trellis/workflow.md
 
 # ============================================================
 # 平台配置 - 下载者有自己的工作流
