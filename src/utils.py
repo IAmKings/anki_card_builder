@@ -57,11 +57,21 @@ def clean_card_content(text: str) -> str:
     text = re.sub(r'\|\s*([^|]+)\s*\|\s*([^|]+)\s*\|', r'\1: \2', text)
     # Remove standalone pipes
     text = text.replace('|', '')
-    # Escape angle brackets that aren't valid HTML tags (e.g., <K,V>, <JAVA_HOME>)
-    # Generic type patterns: <K,V> <Object,Object> <Integer,Object>
+    # Protect known HTML tags before escaping other angle brackets
+    safe_tags = ['b', '/b', 'br', 'hr', 'i', '/i', 'u', '/u', 'div', '/div', 'span', '/span']
+    placeholder = {}
+    for i, tag in enumerate(safe_tags):
+        key = f'__SAFE_TAG_{i}__'
+        placeholder[key] = f'<{tag}>'
+        text = text.replace(f'<{tag}>', key)
+
+    # Escape angle brackets that aren't valid HTML tags (e.g., generics <K,V>)
     text = re.sub(r'<([A-Za-z0-9_,\s]+)>', r'&lt;\1&gt;', text)
-    # UPPERCASE identifiers in angle brackets like <JAVA_HOME>
     text = re.sub(r'<([A-Z][A-Z_0-9]+)>', r'&lt;\1&gt;', text)
+
+    # Restore safe HTML tags
+    for key, tag in placeholder.items():
+        text = text.replace(key, tag)
     # Escape PHP/XML processing instruction markers <? and <? (but not valid HTML)
     text = text.replace('<?', '&lt;?')
     # Escape <= (less-than-or-equal) that genanki misinterprets as HTML tag start

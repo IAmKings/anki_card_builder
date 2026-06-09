@@ -92,15 +92,24 @@ class KotlinMDParser:
                 continue
             answer = am.group(1).strip()
 
+            # Clean answer formatting
+            # Strip leading bullet
             answer = re.sub(r'^\\?\*\s*', '', answer)
+            # Convert inner bullet points to line breaks
+            answer = re.sub(r'\n\\?\*\s+', '<br>• ', answer)
+            # Compress blank lines
             answer = re.sub(r'\n{3,}', '\n\n', answer)
+            # Compress spaces
             answer = re.sub(r'  +', ' ', answer)
+            # Convert markdown bold
             answer = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', answer)
+            # Clean escaped chars
             answer = answer.replace('\\*', '')
             answer = answer.replace('\\-', '-')
             answer = answer.replace('\\>', '>')
-            if len(answer) > 2000:
-                answer = answer[:2000] + '...'
+            # Limit length (Anki cards should be readable)
+            if len(answer) > 2500:
+                answer = answer[:2500] + '...'
 
             cards.append({
                 "front": question,
