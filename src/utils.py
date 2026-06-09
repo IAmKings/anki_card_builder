@@ -65,18 +65,13 @@ def clean_card_content(text: str) -> str:
         placeholder[key] = f'<{tag}>'
         text = text.replace(f'<{tag}>', key)
 
-    # Escape angle brackets that aren't valid HTML tags (e.g., generics <K,V>)
-    text = re.sub(r'<([A-Za-z0-9_,\s]+)>', r'&lt;\1&gt;', text)
-    text = re.sub(r'<([A-Z][A-Z_0-9]+)>', r'&lt;\1&gt;', text)
+    # Escape ALL remaining < and > (safe tags are protected as placeholders)
+    text = text.replace('<', '&lt;')
+    text = text.replace('>', '&gt;')
 
-    # Restore safe HTML tags
+    # Restore safe HTML tags from placeholders
     for key, tag in placeholder.items():
         text = text.replace(key, tag)
-    # Escape PHP/XML processing instruction markers <? and <? (but not valid HTML)
-    text = text.replace('<?', '&lt;?')
-    # Escape <= (less-than-or-equal) that genanki misinterprets as HTML tag start
-    text = text.replace('<=', '&lt;=')
-    # Collapse multiple spaces
     text = re.sub(r' {2,}', ' ', text)
     # Clean leading/trailing whitespace per line
     text = '\n'.join(line.strip() for line in text.split('\n'))

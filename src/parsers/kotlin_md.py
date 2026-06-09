@@ -92,24 +92,32 @@ class KotlinMDParser:
                 continue
             answer = am.group(1).strip()
 
-            # Clean answer formatting
-            # Strip leading bullet
-            answer = re.sub(r'^\\?\*\s*', '', answer)
-            # Convert inner bullet points to line breaks
-            answer = re.sub(r'\n\\?\*\s+', '<br>• ', answer)
-            # Compress blank lines
-            answer = re.sub(r'\n{3,}', '\n\n', answer)
-            # Compress spaces
-            answer = re.sub(r'  +', ' ', answer)
-            # Convert markdown bold
-            answer = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', answer)
-            # Clean escaped chars
+            # Clean answer formatting (ORDER MATTERS!)
+            # 1. Clean escaped chars first
             answer = answer.replace('\\*', '')
             answer = answer.replace('\\-', '-')
             answer = answer.replace('\\>', '>')
-            # Limit length (Anki cards should be readable)
-            if len(answer) > 2500:
-                answer = answer[:2500] + '...'
+            answer = answer.replace('\\<', '<')
+            answer = answer.replace('\\=', '=')
+            # 2. Convert markdown bold to HTML bold
+            answer = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', answer)
+            # 3. Strip leading bullet (after escape cleanup)
+            answer = re.sub(r'^\*\s*', '', answer)
+            # 4. Convert inner bullet points: "\n  * text" → "<br>• text"
+            answer = re.sub(r'\n\s*\*\s+', '<br>• ', answer)
+            # 5. Convert numbered items: "\n  1. text" → "<br>1. text"
+            answer = re.sub(r'\n\s+(\d+)\\.\s+', r'<br>\1. ', answer)
+            # 6. Compress blank lines
+            answer = re.sub(r'\n{3,}', '<br><br>', answer)
+            answer = re.sub(r'\n', '<br>', answer)
+            # 7. Collapse multiple <br> tags
+            answer = re.sub(r'(<br>\s*){3,}', '<br><br>', answer)
+            # 8. Compress spaces and strip
+            answer = re.sub(r'  +', ' ', answer)
+            answer = answer.strip()
+            # 9. Limit length
+            if len(answer) > 3000:
+                answer = answer[:3000] + '...'
 
             cards.append({
                 "front": question,
