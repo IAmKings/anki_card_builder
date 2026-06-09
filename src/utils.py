@@ -49,16 +49,56 @@ def clean_extracted_text(text: str) -> str:
     return text.strip()
 
 
+def convert_md_table(text: str) -> str:
+    """Convert markdown tables to HTML <table> for Anki display."""
+    # Split by <br> (answer lines are already converted to <br>-separated)
+    lines = text.split('<br>')
+    result = []
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        # Detect table start: line starts with | and has at least 2 pipes
+        if line.startswith('|') and line.count('|') >= 2:
+            # Collect consecutive table lines
+            table_lines = []
+            while i < len(lines) and lines[i].strip().startswith('|'):
+                table_lines.append(lines[i].strip())
+                i += 1
+
+            if len(table_lines) < 2:
+                result.append(table_lines[0])
+                continue
+
+            # Build HTML table
+            html = '<table>'
+            # Header row (first line)
+            cells = [c.strip() for c in table_lines[0].split('|')[1:-1]]
+            html += '<tr>' + ''.join(f'<th>{c}</th>' for c in cells) + '</tr>'
+
+            # Data rows (skip separator line like |:---|:---|)
+            start = 1
+            if len(table_lines) > 1 and re.match(r'^[\|\s:\-]+$', table_lines[1]):
+                start = 2
+            for row in table_lines[start:]:
+                cells = [c.strip() for c in row.split('|')[1:-1]]
+                html += '<tr>' + ''.join(f'<td>{c}</td>' for c in cells) + '</tr>'
+
+            html += '</table>'
+            result.append(html)
+        else:
+            result.append(line)
+            i += 1
+
+    return '<br>'.join(result)
+
+
 def clean_card_content(text: str) -> str:
     """Clean card content (front/back) for better display in Anki."""
-    # Remove markdown table rows (lines with mostly pipes)
-    text = re.sub(r'^[|\-:\s]+$', '', text, flags=re.MULTILINE)
-    # Simplify table pipes in content: "| A | B | C |" -> "A: B, C"
-    text = re.sub(r'\|\s*([^|]+)\s*\|\s*([^|]+)\s*\|', r'\1: \2', text)
-    # Remove standalone pipes
-    text = text.replace('|', '')
+    # Convert markdown tables to HTML tables
+    text = convert_md_table(text)
     # Protect known HTML tags before escaping other angle brackets
-    safe_tags = ['b', '/b', 'br', 'hr', 'i', '/i', 'u', '/u', 'div', '/div', 'span', '/span']
+    safe_tags = ['b', '/b', 'br', 'hr', 'i', '/i', 'u', '/u',
+                 'table', '/table', 'tr', '/tr', 'th', '/th', 'td', '/td']
     placeholder = {}
     for i, tag in enumerate(safe_tags):
         key = f'__SAFE_TAG_{i}__'

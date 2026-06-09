@@ -86,6 +86,9 @@ class AnkiExporter:
                 .card-back {
                     text-align: left;
                 }
+                table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+                th { background: #f5f5f5; font-weight: bold; padding: 8px; border: 1px solid #ddd; text-align: left; }
+                td { padding: 8px; border: 1px solid #ddd; vertical-align: top; }
                 .question {
                     font-size: 18px;
                     font-weight: 600;
@@ -160,6 +163,9 @@ class AnkiExporter:
                 .night_mode .cloze {
                     color: #ff6b6b;
                 }
+                table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+                th { background: #f5f5f5; font-weight: bold; padding: 8px; border: 1px solid #ddd; text-align: left; }
+                td { padding: 8px; border: 1px solid #ddd; vertical-align: top; }
                 .source-info {
                     font-size: 11px;
                     color: #aaa;
@@ -247,6 +253,9 @@ class AnkiExporter:
                 .source { margin-top: 20px; font-size: 12px; color: #999; text-align: right; }
                 b { color: #1a73e8; }
                 hr { border: 0; border-top: 1px solid #e0e0e0; }
+                table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+                th { background: #f5f5f5; font-weight: bold; padding: 8px; border: 1px solid #ddd; text-align: left; }
+                td { padding: 8px; border: 1px solid #ddd; vertical-align: top; }
             '''
         )
 
