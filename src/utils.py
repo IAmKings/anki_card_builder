@@ -65,6 +65,8 @@ def clean_card_content(text: str) -> str:
         placeholder[key] = f'<{tag}>'
         text = text.replace(f'<{tag}>', key)
 
+    # Strip any remaining backslash chars (from markdown escapes)
+    text = text.replace('\\', '')
     # Escape ALL remaining < and > (safe tags are protected as placeholders)
     text = text.replace('<', '&lt;')
     text = text.replace('>', '&gt;')

@@ -1,10 +1,9 @@
-"""Kotlin Markdown Parser.
+"""通用 Markdown Q&A 解析器。
 
-Parses Kotlin coroutine Q&A markdown files (e.g., "Kotlin 协程深入的 100 道题")
-into flashcards. This was previously in generate_kotlin_cards.py.
+支持多种 MD Q&A 格式：
+- 问题：### / #### / ##### **N. text** 或 **N\. text**
+- 答案：**确切答案：** / **答案：** / 确切答案：
 """
-
-import json
 import logging
 import re
 from pathlib import Path
@@ -16,25 +15,23 @@ log = logging.getLogger(__name__)
 
 
 class KotlinMDParser:
-    """Parse Kotlin coroutine markdown Q&A files into flashcards."""
+    """通用 MD Q&A 解析器，支持多种格式。"""
 
     def __init__(self, filepath: Path):
         self.filepath = filepath
 
     def parse(self) -> List[Flashcard]:
-        """Parse markdown file and return flashcards."""
-        log.info(f"Parsing Kotlin MD: {self.filepath.name}")
+        log.info(f"Parsing Markdown: {self.filepath.name}")
         cards_data = self._parse_md()
         cards = []
-        source_stem = Path(self.filepath).stem
         for item in cards_data:
             card = Flashcard(
                 front=item["front"],
                 back=item["back"],
-                tags=item.get("tags", ["Kotlin", "协程"]),
+                tags=item.get("tags", []),
                 source_file=self.filepath.name,
                 source_section=item.get("source", ""),
-                deck_name="Android面试::Kotlin",
+                deck_name=item.get("deck_name", "Android面试"),
                 card_type=item.get("card_type", "basic"),
             )
             cards.append(card)
@@ -42,89 +39,153 @@ class KotlinMDParser:
         return cards
 
     def parse_to_dict(self) -> List[Dict]:
-        """Parse and return dicts (for JSON export compatibility)."""
         return self._parse_md()
 
+    def _detect_deck(self) -> str:
+        """根据文件名推断牌组"""
+        name = self.filepath.name.lower()
+        if 'kotlin' in name or '协程' in name:
+            return "Android面试::Kotlin"
+        if 'java' in name or 'jvm' in name:
+            return "Android面试::Java"
+        if '阿里巴巴' in name:
+            return "Android面试::阿里巴巴真题"
+        if '高频核心' in name:
+            return "Android面试::高频题集"
+        return "Android面试::综合"
+
+    def _detect_topic(self, section_title: str) -> str:
+        """从章节标题提取主题标签"""
+        s = section_title.lower()
+        if any(k in s for k in ['java', 'jvm', '并发', '线程', '锁', '集合', '泛型', '反射']):
+            return "Java"
+        if any(k in s for k in ['android', 'activity', 'service', 'fragment', 'view',
+                                  'handler', 'binder', 'ipc', '组件', 'ui']):
+            return "Android"
+        if any(k in s for k in ['kotlin', '协程', 'flow', 'channel', 'suspend']):
+            return "Kotlin"
+        if any(k in s for k in ['网络', 'http', 'tcp', 'socket', 'retrofit', 'okhttp']):
+            return "网络"
+        if any(k in s for k in ['算法', '数据', '排序', '树', '图', '链表']):
+            return "算法"
+        if any(k in s for k in ['设计模式', '架构', 'mvc', 'mvp', 'mvvm']):
+            return "设计模式"
+        if any(k in s for k in ['性能', '优化', '内存', '泄漏', '启动']):
+            return "性能优化"
+        if any(k in s for k in ['系统', '底层', 'framework', 'ndk', '源码']):
+            return "系统底层"
+        if any(k in s for k in ['compose', 'jetpack', 'modern']):
+            return "现代化开发"
+        return "综合"
+
     def _parse_md(self) -> List[Dict]:
-        """Parse markdown file and extract Q&A pairs."""
         with open(str(self.filepath), 'r', encoding='utf-8') as f:
             text = f.read()
 
         cards = []
-        section = "综合"
+        current_section = "综合"
+        deck_name = self._detect_deck()
 
-        blocks = re.split(r'\n(?=### \*\*\d+\\\. )', text)
+        # Split by question markers - try heading format first,
+        # then fallback to bold-numbered format (for 4th/5th part files)
+        # Format A: ### / #### / ##### **N\. text**
+        # Format B: **N\. text** (bold, no heading marker)
+        blocks = re.split(r'\n(?=#{3,6} \*\*\d+\S+\s)', text)
+        if len(blocks) <= 2:  # Try bold-numbered format
+            blocks = re.split(r'\n(?=\*\*\d+\S+\s)', text)
 
         for block in blocks:
-            sec = re.search(r'## \*\*(.+?)\*\*', block)
+            # Track section changes from ## or ### section headers
+            sec = re.search(r'#{2,3} \*\*(.+?)\*\*', block)
             if sec:
-                s = sec.group(1)
-                if '基础' in s or '设计' in s:
-                    section = "基础与设计哲学"
-                elif '上下文' in s or '调度' in s:
-                    section = "上下文与调度器"
-                elif '生命周期' in s or '取消' in s:
-                    section = "生命周期与取消"
-                elif '异常' in s or '并发安全' in s:
-                    section = "异常处理与并发安全"
-                elif 'Channel' in s:
-                    section = "Channel管道"
-                elif 'Flow 全家桶' in s or '核心原理' in s:
-                    section = "Flow核心原理"
-                elif '状态流' in s or 'StateFlow' in s or 'SharedFlow' in s:
-                    section = "SharedFlow与StateFlow"
-                elif '背压' in s or 'Backpressure' in s:
-                    section = "背压处理"
-                elif 'Android' in s or '实战' in s or 'Jetpack' in s:
-                    section = "Android实战"
-                elif '测试' in s:
-                    section = "测试与调试"
-                elif '源码' in s:
-                    section = "源码分析"
+                current_section = sec.group(1).strip()
 
-            qm = re.match(r'### \*\*\d+\\\.\s*(.+?)\*\*', block)
+            # ============================================================
+            # Extract question: #{3,6} **N. text** or **N\. text**
+            # ============================================================
+            # Try heading format first, then bold-numbered format
+            qm = re.match(r'#{3,6} \*\*\d+\S+\s*(.+?)\*\*', block)
+            if not qm:
+                qm = re.match(r'\*\*\d+\S+\s*(.+?)\*\*', block)
             if not qm:
                 continue
             question = qm.group(1).strip()
+            # Clean question text of markdown escapes
+            question = question.replace('\\', '')
 
-            am = re.search(r'\*\*确切答案[：:]\*\*\s*(.+?)(?=\n(?:### \*\*|\n## \*\*|\n\*\*提示|\Z))', block, re.DOTALL)
-            if not am:
+            # Extract answer - capture everything after marker to end of block,
+            # then trim at any section header boundary (##/### text headers)
+            answer = None
+            for pattern in [
+                r'\*?\s*\*\*确切答案\*\*[：:]\s*(.+)',    # * **确切答案**： (answer text)
+                r'\*?\s*\*\*答案\*\*[：:]\s*(.+)',         # * **答案**： (answer text)
+                r'\*?\s*\*\*确切答案[：:]\*\*\s*(.+)',     # * **确切答案：** (legacy)
+                r'\*?\s*\*\*答案[：:]\*\*\s*(.+)',          # * **答案：** (legacy)
+                r'\*?\s*确切答案[：:]\s*(.+)',              # 确切答案： (plain)
+            ]:
+                am = re.search(pattern, block, re.DOTALL)
+                if am:
+                    answer = am.group(1).strip()
+                    # Trim at next section heading (## **Title** or ### **Title**)
+                    answer = re.split(r'\n(?:#{2,3} \*\*[^\d])', answer)[0]
+                    # Trim at "提示：" or ending messages
+                    answer = re.split(r'\n\*{0,2}[祝欢谢谢]', answer)[0]
+                    break
+
+            if not answer:
                 continue
-            answer = am.group(1).strip()
 
-            # Clean answer formatting (ORDER MATTERS!)
-            # 1. Clean escaped chars first
-            answer = answer.replace('\\*', '')
-            answer = answer.replace('\\-', '-')
-            answer = answer.replace('\\>', '>')
-            answer = answer.replace('\\<', '<')
-            answer = answer.replace('\\=', '=')
-            # 2. Convert markdown bold to HTML bold
-            answer = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', answer)
-            # 3. Strip leading bullet (after escape cleanup)
-            answer = re.sub(r'^\*\s*', '', answer)
-            # 4. Convert inner bullet points: "\n  * text" → "<br>• text"
-            answer = re.sub(r'\n\s*\*\s+', '<br>• ', answer)
-            # 5. Convert numbered items: "\n  1. text" → "<br>1. text"
-            answer = re.sub(r'\n\s+(\d+)\\.\s+', r'<br>\1. ', answer)
-            # 6. Compress blank lines
-            answer = re.sub(r'\n{3,}', '<br><br>', answer)
-            answer = re.sub(r'\n', '<br>', answer)
-            # 7. Collapse multiple <br> tags
-            answer = re.sub(r'(<br>\s*){3,}', '<br><br>', answer)
-            # 8. Compress spaces and strip
-            answer = re.sub(r'  +', ' ', answer)
-            answer = answer.strip()
-            # 9. Limit length
-            if len(answer) > 3000:
-                answer = answer[:3000] + '...'
+            # ============================================================
+            # Clean answer formatting
+            # ============================================================
+            answer = self._clean_answer(answer)
 
+            topic = self._detect_topic(current_section)
             cards.append({
                 "front": question,
                 "back": answer,
                 "card_type": "basic",
-                "tags": ["Kotlin", "协程", section],
-                "source": f"Kotlin 协程深入的 100 道题 > {section}"
+                "tags": [topic, self._detect_topic(self.filepath.name)],
+                "deck_name": deck_name,
+                "source": f"{self.filepath.name} > {current_section}"
             })
 
         return cards
+
+    def _clean_answer(self, answer: str) -> str:
+        """统一的答案格式清理"""
+        # 1. Clean escaped chars - twice to catch nested escapes like \\<
+        for ch in ['*', '-', '>', '<', '=', '/', '_']:
+            answer = answer.replace(f'\\{ch}', ch)
+        # Second pass for any remaining escapes (e.g., \> inside angle brackets)
+        answer = answer.replace('\\>', '>')
+        answer = answer.replace('\\<', '<')
+
+        # 2. Convert markdown bold to HTML bold
+        answer = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', answer)
+
+        # 3. Strip leading bullet
+        answer = re.sub(r'^\*\s*', '', answer)
+
+        # 4. Convert inner bullets: "\n  * text" → "<br>• text"
+        answer = re.sub(r'\n\s*\*\s+', '<br>• ', answer)
+
+        # 5. Convert numbered items
+        answer = re.sub(r'\n\s+(\d+)\\\.\s+', r'<br>\1. ', answer)
+
+        # 6. Newlines → <br>
+        answer = re.sub(r'\n{3,}', '<br><br>', answer)
+        answer = re.sub(r'\n', '<br>', answer)
+
+        # 7. Collapse excessive <br> tags
+        answer = re.sub(r'(<br>\s*){3,}', '<br><br>', answer)
+
+        # 8. Compress spaces
+        answer = re.sub(r'  +', ' ', answer)
+        answer = answer.strip()
+
+        # 9. Limit length
+        if len(answer) > 3000:
+            answer = answer[:3000] + '...'
+
+        return answer
