@@ -86,13 +86,15 @@ class KotlinMDParser:
         current_section = "综合"
         deck_name = self._detect_deck()
 
-        # Split by question markers - try heading format first,
-        # then fallback to bold-numbered format (for 4th/5th part files)
-        # Format A: ### / #### / ##### **N\. text**
+        # Split by question markers - try 3 formats:
+        # Format A: ### / #### / ##### **N\. text** (bold heading)
         # Format B: **N\. text** (bold, no heading marker)
+        # Format C: ### / #### / ##### N. text (plain heading, no bold)
         blocks = re.split(r'\n(?=#{3,6} \*\*\d+\S+\s)', text)
-        if len(blocks) <= 2:  # Try bold-numbered format
+        if len(blocks) <= 2:
             blocks = re.split(r'\n(?=\*\*\d+\S+\s)', text)
+        if len(blocks) <= 2:
+            blocks = re.split(r'\n(?=#{2,4} \d+\S+\s)', text)
 
         for block in blocks:
             # Track section changes from ## or ### section headers
@@ -100,37 +102,46 @@ class KotlinMDParser:
             if sec:
                 current_section = sec.group(1).strip()
 
-            # ============================================================
-            # Extract question: #{3,6} **N. text** or **N\. text**
-            # ============================================================
-            # Try heading format first, then bold-numbered format
-            qm = re.match(r'#{3,6} \*\*\d+\S+\s*(.+?)\*\*', block)
+            # Extract question - try 3 formats
+            qm = re.match(r'#{3,6} \*\*\d+\S+\s*(.+?)\*\*', block)  # A: bold heading
             if not qm:
-                qm = re.match(r'\*\*\d+\S+\s*(.+?)\*\*', block)
+                qm = re.match(r'\*\*\d+\S+\s*(.+?)\*\*', block)      # B: bold-numbered
             if not qm:
-                continue
-            question = qm.group(1).strip()
+                qm = re.match(r'#{2,4} \d+[\.\、\s]+(.+)', block)    # C: plain heading
+                if qm:
+                    question = qm.group(1).strip()
+                else:
+                    continue
+            else:
+                question = qm.group(1).strip()
             # Clean question text of markdown escapes
             question = question.replace('\\', '')
 
-            # Extract answer - capture everything after marker to end of block,
-            # then trim at any section header boundary (##/### text headers)
+            # Extract answer - try explicit markers first, then inline
             answer = None
             for pattern in [
-                r'\*?\s*\*\*确切答案\*\*[：:]\s*(.+)',    # * **确切答案**： (answer text)
-                r'\*?\s*\*\*答案\*\*[：:]\s*(.+)',         # * **答案**： (answer text)
-                r'\*?\s*\*\*确切答案[：:]\*\*\s*(.+)',     # * **确切答案：** (legacy)
-                r'\*?\s*\*\*答案[：:]\*\*\s*(.+)',          # * **答案：** (legacy)
-                r'\*?\s*确切答案[：:]\s*(.+)',              # 确切答案： (plain)
+                r'\*?\s*\*\*确切答案\*\*[：:]\s*(.+)',
+                r'\*?\s*\*\*答案\*\*[：:]\s*(.+)',
+                r'\*?\s*\*\*确切答案[：:]\*\*\s*(.+)',
+                r'\*?\s*\*\*答案[：:]\*\*\s*(.+)',
+                r'\*?\s*确切答案[：:]\s*(.+)',
             ]:
                 am = re.search(pattern, block, re.DOTALL)
                 if am:
                     answer = am.group(1).strip()
-                    # Trim at next section heading (## **Title** or ### **Title**)
                     answer = re.split(r'\n(?:#{2,3} \*\*[^\d])', answer)[0]
-                    # Trim at "提示：" or ending messages
                     answer = re.split(r'\n\*{0,2}[祝欢谢谢]', answer)[0]
                     break
+
+            # Inline answer: everything after the heading line, until next heading or code block start
+            if not answer:
+                # Find content after the heading match
+                content_start = qm.end()
+                rest = block[content_start:].strip()
+                # Trim at next heading or "---" separator
+                rest = re.split(r'\n(?:#{2,4} |---)', rest)[0]
+                if len(rest) > 20:
+                    answer = rest
 
             if not answer:
                 continue
@@ -161,7 +172,13 @@ class KotlinMDParser:
         answer = answer.replace('\\>', '>')
         answer = answer.replace('\\<', '<')
 
-        # 2. Convert markdown bold to HTML bold
+        # 2. Convert code blocks: ```lang\n code \n``` → <pre><code>
+        def convert_code(m):
+            code = m.group(1).strip()
+            return f'<pre><code>{code}</code></pre>'
+        answer = re.sub(r'```\w*\n(.+?)```', convert_code, answer, flags=re.DOTALL)
+
+        # 3. Convert markdown bold to HTML bold
         answer = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', answer)
 
         # 3. Strip leading bullet

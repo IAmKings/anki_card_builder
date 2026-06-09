@@ -89,6 +89,11 @@ class AnkiExporter:
                 table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
                 th { background: #f5f5f5; font-weight: bold; padding: 8px; border: 1px solid #ddd; text-align: left; }
                 td { padding: 8px; border: 1px solid #ddd; vertical-align: top; }
+                pre { background: #2d2d2d; color: #f8f8f2; padding: 12px; border-radius: 6px;
+                      overflow-x: auto; font-size: 13px; line-height: 1.5; margin: 10px 0; }
+                code { font-family: "SF Mono", "Fira Code", "Consolas", monospace; }
+                pre code { background: transparent; padding: 0; }
+                .night_mode pre { background: #1a1a2e; }
                 .question {
                     font-size: 18px;
                     font-weight: 600;
@@ -166,6 +171,11 @@ class AnkiExporter:
                 table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
                 th { background: #f5f5f5; font-weight: bold; padding: 8px; border: 1px solid #ddd; text-align: left; }
                 td { padding: 8px; border: 1px solid #ddd; vertical-align: top; }
+                pre { background: #2d2d2d; color: #f8f8f2; padding: 12px; border-radius: 6px;
+                      overflow-x: auto; font-size: 13px; line-height: 1.5; margin: 10px 0; }
+                code { font-family: "SF Mono", "Fira Code", "Consolas", monospace; }
+                pre code { background: transparent; padding: 0; }
+                .night_mode pre { background: #1a1a2e; }
                 .source-info {
                     font-size: 11px;
                     color: #aaa;
@@ -256,6 +266,11 @@ class AnkiExporter:
                 table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
                 th { background: #f5f5f5; font-weight: bold; padding: 8px; border: 1px solid #ddd; text-align: left; }
                 td { padding: 8px; border: 1px solid #ddd; vertical-align: top; }
+                pre { background: #2d2d2d; color: #f8f8f2; padding: 12px; border-radius: 6px;
+                      overflow-x: auto; font-size: 13px; line-height: 1.5; margin: 10px 0; }
+                code { font-family: "SF Mono", "Fira Code", "Consolas", monospace; }
+                pre code { background: transparent; padding: 0; }
+                .night_mode pre { background: #1a1a2e; }
             '''
         )
 

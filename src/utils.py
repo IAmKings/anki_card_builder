@@ -98,7 +98,8 @@ def clean_card_content(text: str) -> str:
     text = convert_md_table(text)
     # Protect known HTML tags before escaping other angle brackets
     safe_tags = ['b', '/b', 'br', 'hr', 'i', '/i', 'u', '/u',
-                 'table', '/table', 'tr', '/tr', 'th', '/th', 'td', '/td']
+                 'table', '/table', 'tr', '/tr', 'th', '/th', 'td', '/td',
+                 'pre', '/pre', 'code', '/code']
     placeholder = {}
     for i, tag in enumerate(safe_tags):
         key = f'__SAFE_TAG_{i}__'
