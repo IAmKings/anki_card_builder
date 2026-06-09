@@ -86,21 +86,24 @@ class KotlinMDParser:
         current_section = "综合"
         deck_name = self._detect_deck()
 
-        # Split by question markers - try 3 formats:
-        # Format A: ### / #### / ##### **N\. text** (bold heading)
-        # Format B: **N\. text** (bold, no heading marker)
-        # Format C: ### / #### / ##### N. text (plain heading, no bold)
-        blocks = re.split(r'\n(?=#{3,6} \*\*\d+\S+\s)', text)
+        # Split by question markers - try 4 formats
+        blocks = re.split(r'\n(?=#{3,6} \*\*\d+\S+\s)', text)        # A: bold heading
         if len(blocks) <= 2:
-            blocks = re.split(r'\n(?=\*\*\d+\S+\s)', text)
+            blocks = re.split(r'\n(?=\*\*\d+\S+\s)', text)           # B: bold-numbered
         if len(blocks) <= 2:
-            blocks = re.split(r'\n(?=#{2,4} \d+\S+\s)', text)
+            blocks = re.split(r'\n(?=#{2,4} \d+\S+\s)', text)        # C: plain heading
+        if len(blocks) <= 2:
+            blocks = re.split(r'\n(?=#{2,4} 案例 \d+[：:])', text)   # D: case study
 
         for block in blocks:
-            # Track section changes from ## or ### section headers
+            # Track section changes from ## or ### headers
             sec = re.search(r'#{2,3} \*\*(.+?)\*\*', block)
             if sec:
                 current_section = sec.group(1).strip()
+            else:
+                sec = re.search(r'#{2,3} (.+?)(?:\n|$)', block)
+                if sec:
+                    current_section = sec.group(1).strip()
 
             # Extract question - try 3 formats
             qm = re.match(r'#{3,6} \*\*\d+\S+\s*(.+?)\*\*', block)  # A: bold heading
@@ -108,6 +111,8 @@ class KotlinMDParser:
                 qm = re.match(r'\*\*\d+\S+\s*(.+?)\*\*', block)      # B: bold-numbered
             if not qm:
                 qm = re.match(r'#{2,4} \d+[\.\、\s]+(.+)', block)    # C: plain heading
+            if not qm:
+                qm = re.match(r'#{2,4} 案例 \d+[：:]\s*(.+)', block)  # D: case study
                 if qm:
                     question = qm.group(1).strip()
                 else:
