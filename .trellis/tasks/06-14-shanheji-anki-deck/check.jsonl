@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "验证卡片质量：最小长度、禁止模式、来源标注完整性"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "验证错误处理：单文件失败隔离、部分成功接受"}
