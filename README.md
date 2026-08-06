@@ -1,6 +1,6 @@
-# Android 面试 Anki 卡组
+# Anki 卡组生成器
 
-> 市面上最完整的 Android 开发面试 Anki 卡片卡组 — 1270 张卡片，16 个源文件，5 个分层牌组。
+> 多领域知识 Anki 卡片生成 — Android 面试 1270 张 + 山河集珠宝销售 + MQTT 协议 200 张。
 
 ## 快速开始
 
@@ -73,7 +73,31 @@
 
 ## 开发者
 
-### 从源码构建
+### API 配置（AI 选择题生成，可选）
+
+花销型功能，默认关闭。需通过 `--ai` 显式启用。
+
+创建 `.env` 文件（已 gitignore，不会提交）：
+
+```
+DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxx   # 推荐，成本极低
+ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx  # 备选
+```
+
+优先级：DeepSeek > Anthropic。
+
+### 独立卡组生成器
+
+```bash
+# MQTT 协议卡组（200 张：100 Q&A + 100 选择题）
+python3 generate_mqtt.py              # 快速模式，不调 AI
+python3 generate_mqtt.py --ai          # AI 生成选择题干扰项 + 扩展提示
+
+# 山河集珠宝销售卡组
+python3 generate_shanheji.py
+```
+
+### 从源码构建（Android 面试卡组）
 
 ```bash
 # 安装依赖
@@ -88,17 +112,22 @@ python3 main.py
 ### 项目结构
 
 ```
-├── main.py               # 入口（~45行）
+├── main.py                  # 入口（~45行）
+├── generate_mqtt.py         # MQTT 协议卡组生成器
+├── generate_shanheji.py     # 山河集珠宝销售卡组生成器
 ├── src/
-│   ├── config.py         # 配置
-│   ├── models.py         # 数据模型
-│   ├── utils.py          # 工具函数（转义、表格转换、内容清理）
-│   ├── pipeline.py       # 流水线编排
-│   ├── parsers/          # 4种MD格式解析器
-│   ├── processing/       # 质量过滤 + 去重
-│   └── export/           # genanki .apkg 导出
-├── data/                 # 题库源文件（MD格式）
-└── output/               # 生成的 .apkg
+│   ├── config.py            # 配置 + API Key 加载
+│   ├── models.py            # 数据模型（Flashcard）
+│   ├── utils.py             # 工具函数（转义、表格转换、内容清理）
+│   ├── pipeline.py          # 流水线编排（Android 面试）
+│   ├── ai_mc_generator.py   # 通用 AI 选择题生成模块
+│   ├── parsers/             # 4种MD + 山河集 TXT 解析器
+│   ├── processing/          # 质量过滤 + 去重
+│   └── export/              # genanki .apkg 导出
+├── data/                    # Android 面试题库（MD）
+├── data2/山河集/            # 山河集珠宝销售题库（TXT）
+├── data3_mqtt/              # MQTT 协议题库（MD）
+└── output/                  # 生成的 .apkg
 ```
 
 ### 贡献新题库
@@ -114,6 +143,23 @@ python3 main.py
 | 案例标题 | `### 案例 1：标题` | 内联 |
 
 新卡片会自动去重合并。
+
+### 开发新的领域卡组
+
+1. 创建 `generate_xxx.py` 独立脚本
+2. 导入共享 AI 模块：
+```python
+from src.ai_mc_generator import generate_mc_data
+
+mc_data = generate_mc_data(
+    points=[{"number": 1, "keyword": "...", "explanation": "..."}, ...],
+    domain="领域名",
+    api_key=CONFIG.deepseek_api_key or CONFIG.anthropic_api_key,
+    api_model=...,
+    api_provider="deepseek",
+)
+```
+3. 用户调用 `python3 generate_xxx.py --ai` 启用 AI，一次配置多项目共用。
 
 ### CI/CD
 
