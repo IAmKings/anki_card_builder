@@ -145,7 +145,8 @@ class TxtParser:
             messages=[{"role": "user", "content": prompt}]
         )
 
-        answer = response.content[0].text.strip()
+        text_parts = [getattr(block, "text", "") for block in response.content]
+        answer = "\n".join(part for part in text_parts if part).strip()
         if not answer or len(answer) < 10:
             return []
 

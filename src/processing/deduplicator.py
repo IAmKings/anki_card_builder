@@ -53,7 +53,7 @@ class Deduplicator:
         def normalize(s: str) -> str:
             return re.sub(r'[^\w\u4e00-\u9fff]', '', s).lower()
 
-        unique = []
+        unique: List[dict] = []
         for card in cards:
             is_dup = False
             nf = normalize(card.get('front', ''))

@@ -2,6 +2,7 @@
 
 import re
 from difflib import SequenceMatcher
+from pathlib import Path
 
 
 def normalize_text(text: str) -> str:
@@ -123,7 +124,7 @@ def clean_card_content(text: str) -> str:
 
 def extract_markdown(filepath: "Path") -> str:
     """Extract PDF as Markdown using pymupdf4llm."""
-    import pymupdf4llm
+    import pymupdf4llm  # type: ignore[import-untyped]
     md_text = pymupdf4llm.to_markdown(str(filepath))
     return clean_extracted_text(md_text)
 

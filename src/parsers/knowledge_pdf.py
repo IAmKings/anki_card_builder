@@ -55,7 +55,7 @@ class KnowledgePDFParser:
         sections = []
 
         try:
-            import fitz
+            import fitz  # type: ignore[import-untyped]
             doc = fitz.open(str(self.filepath))
             toc = doc.get_toc()
             doc.close()
@@ -189,7 +189,8 @@ class KnowledgePDFParser:
             messages=[{"role": "user", "content": prompt}]
         )
 
-        result = response.content[0].text
+        text_parts = [getattr(block, "text", "") for block in response.content]
+        result = "\n".join(part for part in text_parts if part)
 
         try:
             json_match = re.search(r'\{[\s\S]*\}', result)

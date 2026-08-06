@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 from typing import List, Dict, Any
 
-import genanki
+import genanki  # type: ignore[import-untyped]
 
 from ..config import CONFIG
 from ..models import Flashcard

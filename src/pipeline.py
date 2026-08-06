@@ -7,7 +7,7 @@ from typing import List, Dict, Any
 
 from .config import CONFIG
 from .models import Flashcard
-from .parsers import InterviewPDFParser, KnowledgePDFParser, TxtParser, KotlinMDParser
+from .parsers import InterviewPDFParser, KnowledgePDFParser, TxtParser, KotlinMDParser, ShanhejiParser
 from .processing import Deduplicator, QualityFilter
 from .export import AnkiExporter
 
@@ -27,6 +27,7 @@ def process_file(filepath: Path) -> List[Flashcard]:
     """Process a single source file and return flashcards."""
     ext = filepath.suffix.lower()
 
+    parser: Any = None
     if ext == ".md":
         parser = KotlinMDParser(filepath)
     elif ext == ".pdf":
@@ -36,7 +37,11 @@ def process_file(filepath: Path) -> List[Flashcard]:
         else:
             parser = KnowledgePDFParser(filepath)
     elif ext == ".txt":
-        parser = TxtParser(filepath)
+        # Route 山河集 files to their dedicated parser
+        if "山河集" in str(filepath):
+            parser = ShanhejiParser(filepath)
+        else:
+            parser = TxtParser(filepath)
     else:
         log.warning(f"Unsupported file type: {filepath}")
         return []
