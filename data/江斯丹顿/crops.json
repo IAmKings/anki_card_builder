@@ -1,0 +1,299 @@
+[
+  {
+    "name": "vc-w-53-01-overseas",
+    "page": 53,
+    "rect": [
+      33,
+      133,
+      95,
+      225
+    ],
+    "label": "1996 OVERSEAS 纵横四海系列（钢款计时）"
+  },
+  {
+    "name": "vc-w-53-02-patrimony",
+    "page": 53,
+    "rect": [
+      119,
+      130,
+      189,
+      243
+    ],
+    "label": "2004 Patrimony 传承系列（粉红金超薄）"
+  },
+  {
+    "name": "vc-w-53-03-metiers",
+    "page": 53,
+    "rect": [
+      203,
+      123,
+      289,
+      245
+    ],
+    "label": "2006 Métiers d'Art 艺术大师系列"
+  },
+  {
+    "name": "vc-w-53-04-historiques",
+    "page": 53,
+    "rect": [
+      299,
+      120,
+      386,
+      244
+    ],
+    "label": "2007 Historiques 历史名作系列（American 1921）"
+  },
+  {
+    "name": "vc-w-53-05-traditionnelle",
+    "page": 53,
+    "rect": [
+      391,
+      118,
+      476,
+      237
+    ],
+    "label": "2007 Traditionnelle 传袭系列"
+  },
+  {
+    "name": "vc-w-53-06-quaide",
+    "page": 53,
+    "rect": [
+      492,
+      132,
+      555,
+      228
+    ],
+    "label": "2008 Quai de l'Ile 奎德利系列"
+  },
+  {
+    "name": "vc-w-53-07-malte",
+    "page": 53,
+    "rect": [
+      25,
+      309,
+      91,
+      417
+    ],
+    "label": "2012 Malte 马耳他系列（酒桶形陀飞轮）"
+  },
+  {
+    "name": "vc-w-53-08-harmony",
+    "page": 53,
+    "rect": [
+      114,
+      299,
+      201,
+      419
+    ],
+    "label": "2015 Harmony 和韵系列"
+  },
+  {
+    "name": "vc-w-53-09-creatives",
+    "page": 53,
+    "rect": [
+      211,
+      300,
+      294,
+      410
+    ],
+    "label": "2015 Heures Créatives 创意时光系列"
+  },
+  {
+    "name": "vc-w-53-10-overseas2",
+    "page": 53,
+    "rect": [
+      305,
+      305,
+      399,
+      419
+    ],
+    "label": "2016 Overseas 纵横四海系列（重新上市）"
+  },
+  {
+    "name": "vc-w-53-11-fiftysix",
+    "page": 53,
+    "rect": [
+      393,
+      300,
+      476,
+      417
+    ],
+    "label": "2018 Fiftysix 伍陆之型系列"
+  },
+  {
+    "name": "vc-w-53-12-egeria",
+    "page": 53,
+    "rect": [
+      499,
+      304,
+      557,
+      413
+    ],
+    "label": "2020 Égérie 伊灵女神系列"
+  },
+  {
+    "name": "vc-w-91-01-royal",
+    "page": 91,
+    "rect": [
+      18,
+      87,
+      110,
+      216
+    ],
+    "label": "Historiques Royal chronometer 皇家天文台（1907）"
+  },
+  {
+    "name": "vc-w-91-02-ultrafine",
+    "page": 91,
+    "rect": [
+      117,
+      83,
+      212,
+      218
+    ],
+    "label": "Historiques Ultra-fine 超薄（1955）"
+  },
+  {
+    "name": "vc-w-91-03-cornes",
+    "page": 91,
+    "rect": [
+      216,
+      90,
+      303,
+      214
+    ],
+    "label": "Historiques Cornes de vache 牛角（1955）"
+  },
+  {
+    "name": "vc-w-91-04-american",
+    "page": 91,
+    "rect": [
+      307,
+      94,
+      388,
+      209
+    ],
+    "label": "Historiques American 21 美国1921（1921）"
+  },
+  {
+    "name": "vc-w-91-05-triple",
+    "page": 91,
+    "rect": [
+      406,
+      94,
+      480,
+      200
+    ],
+    "label": "Historiques Triple calendrier 三重日历（1942）"
+  },
+  {
+    "name": "vc-w-91-06-222",
+    "page": 91,
+    "rect": [
+      491,
+      92,
+      578,
+      223
+    ],
+    "label": "Historiques 222（1977）"
+  },
+  {
+    "name": "vc-w-101-01-romantique",
+    "page": 101,
+    "rect": [
+      28,
+      123,
+      130,
+      245
+    ],
+    "label": "Heure Romantique 罗曼时光（新艺术主义）"
+  },
+  {
+    "name": "vc-w-101-02-discrete",
+    "page": 101,
+    "rect": [
+      267,
+      123,
+      385,
+      256
+    ],
+    "label": "Heure Discrète 神秘时光（装饰艺术）"
+  },
+  {
+    "name": "vc-w-101-03-audacieuse",
+    "page": 101,
+    "rect": [
+      433,
+      124,
+      584,
+      256
+    ],
+    "label": "Heure Audacieuse 不羁时光（1970年代）"
+  },
+  {
+    "name": "vc-w-110-01-bu19",
+    "page": 110,
+    "rect": [
+      15,
+      198,
+      106,
+      335
+    ],
+    "label": "Les Cabinotiers 年度主题 BU19 丛灵野趣"
+  },
+  {
+    "name": "vc-w-110-02-bu20",
+    "page": 110,
+    "rect": [
+      106,
+      201,
+      201,
+      332
+    ],
+    "label": "Les Cabinotiers 年度主题 BU20 乐动时光"
+  },
+  {
+    "name": "vc-w-110-03-bu21",
+    "page": 110,
+    "rect": [
+      202,
+      205,
+      286,
+      327
+    ],
+    "label": "Les Cabinotiers 年度主题 BU21 浩瀚宇宙"
+  },
+  {
+    "name": "vc-w-110-04-bu22",
+    "page": 110,
+    "rect": [
+      281,
+      212,
+      384,
+      352
+    ],
+    "label": "Les Cabinotiers 年度主题 BU22 谧海之境"
+  },
+  {
+    "name": "vc-w-110-05-iconic",
+    "page": 110,
+    "rect": [
+      392,
+      192,
+      494,
+      338
+    ],
+    "label": "Les Cabinotiers 标志性作品"
+  },
+  {
+    "name": "vc-w-110-06-custom",
+    "page": 110,
+    "rect": [
+      470,
+      205,
+      590,
+      333
+    ],
+    "label": "Les Cabinotiers 定制作品"
+  }
+]
