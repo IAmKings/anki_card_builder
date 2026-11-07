@@ -67,6 +67,23 @@ class SchemaTest(unittest.TestCase):
             report = validate(spec)
             self.assertTrue(any("身份重复" in w for w in report.warnings))
 
+    def test_source_only_card_is_valid(self):
+        """MD 来源没有页码，用 source 溯源必须合法。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            spec = make_deck(Path(tmp), [
+                {"type": "qa", "q": "问题", "a": "答案", "source": "某题库.md"},
+            ])
+            report = validate(spec)
+            self.assertTrue(report.ok)
+            self.assertFalse(any("无法溯源" in w for w in report.warnings))
+
+    def test_missing_pages_and_source_warns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            spec = make_deck(Path(tmp), [{"type": "qa", "q": "问题", "a": "答案"}])
+            report = validate(spec)
+            self.assertTrue(report.ok)
+            self.assertTrue(any("无法溯源" in w for w in report.warnings))
+
     def test_page_bounds_only_with_pdf(self):
         with tempfile.TemporaryDirectory() as tmp:
             spec = make_deck(Path(tmp), [{"type": "qa", "q": "问题", "a": "答案", "pages": [99]}])

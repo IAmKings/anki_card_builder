@@ -1,0 +1,4 @@
+# 可选：需要 PDF 页面截图 / 裁图 / 带图预览时才安装
+# PyMuPDF 为 AGPL-3.0 双许可，仅本机使用，不要打进对外分发的包
+-r requirements.txt
+pymupdf==1.28.2

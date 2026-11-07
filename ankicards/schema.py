@@ -160,14 +160,18 @@ def validate(spec: DeckSpec, page_count: int | None = None,
                     rep.add_warning(where, "cloze 缺少 extra")
 
             pages = card.get("pages")
-            if not isinstance(pages, list) or not pages:
-                rep.add_error(where, "缺少 pages（原文页码）")
-            else:
-                for p in pages:
-                    if not isinstance(p, int) or p < 1:
-                        rep.add_error(where, f"页码非法: {p!r}")
-                    elif page_count is not None and p > page_count:
-                        rep.add_error(where, f"页码 {p} 超出 1-{page_count}")
+            source = str(card.get("source", "")).strip()
+            if pages is None and not source:
+                rep.add_warning(where, "缺少 pages 与 source（无法溯源到原文）")
+            elif pages is not None:
+                if not isinstance(pages, list) or not pages:
+                    rep.add_error(where, "pages 必须是非空数组（或用 source 溯源）")
+                else:
+                    for p in pages:
+                        if not isinstance(p, int) or p < 1:
+                            rep.add_error(where, f"页码非法: {p!r}")
+                        elif page_count is not None and p > page_count:
+                            rep.add_error(where, f"页码 {p} 超出 1-{page_count}")
 
             tags = card.get("tags", [])
             if tags and not (isinstance(tags, list) and all(isinstance(t, str) for t in tags)):

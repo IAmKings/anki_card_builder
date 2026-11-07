@@ -182,16 +182,18 @@ def build(spec: DeckSpec, out_path: str | Path, pdf: str | None = None, lite: bo
             deck = genanki.Deck(deck_id(full_name), full_name)
             for card in sec["cards"]:
                 ctype = card.get("type", "qa")
-                pages_src = "P" + "、P".join(str(p) for p in card["pages"])
+                card_pages = card.get("pages") or []
+                pages_src = ("P" + "、P".join(str(p) for p in card_pages)) if card_pages \
+                    else str(card.get("source", ""))
                 page_imgs = ""
                 if not lite and pdf:
                     page_imgs = "".join(
                         f'<img class="slide" src="{slug}-p{p:03d}.jpg">'
-                        for p in card["pages"] if p in pages
+                        for p in card_pages if p in pages
                     )
                 page_html = f'<div class="pageimg">{page_imgs}</div>' if page_imgs else ""
                 if not lite and pdf:
-                    media.update(f"{slug}-p{p:03d}.jpg" for p in card["pages"] if p in pages)
+                    media.update(f"{slug}-p{p:03d}.jpg" for p in card_pages if p in pages)
 
                 if ctype == "cloze":
                     fields = [card["text"], card.get("extra", ""), pages_src, page_html]

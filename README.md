@@ -33,7 +33,7 @@
 
 ### 江诗丹顿 2023 培训手册卡组
 
-`output/江诗丹顿2023培训手册.apkg` —— **272 张卡片**（填空卡拆分为 298 张复习卡），从 141 页带图文的内部培训手册中提取，每张卡片背面都附原文页面截图，另有 26 张腕表产品图用于“看图识系列/识表款”。
+`output/江诗丹顿2023培训手册.apkg` —— **273 张卡片**（填空卡拆分为 299 张复习卡），从 141 页带图文的内部培训手册中提取，每张卡片背面都附原文页面截图，另有 27 张腕表产品图用于“看图识系列/识表款”。
 
 | 子牌组 | 张数 | 内容 |
 |------|------|------|
@@ -98,19 +98,6 @@
 
 ## 开发者
 
-### API 配置（AI 选择题生成，可选）
-
-花销型功能，默认关闭。需通过 `--ai` 显式启用。
-
-创建 `.env` 文件（已 gitignore，不会提交）：
-
-```
-DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxx   # 推荐，成本极低
-ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx  # 备选
-```
-
-优先级：DeepSeek > Anthropic。
-
 ### 工具链（ankicards）
 
 新牌组统一走一个入口，不再为每份文档写一个脚本：
@@ -126,7 +113,7 @@ python3 -m ankicards build  <牌组目录> --out output/xxx.apkg [--pdf 手册.p
 python3 -m ankicards verify output/xxx.apkg
 ```
 
-依赖锁定在 `requirements.txt`（`genanki` 必需，`pymupdf` 仅在渲染时用到）。
+依赖：`requirements.txt`（genanki，必需）；`requirements-render.txt`（PyMuPDF，仅渲染 PDF 页面/裁图/带图预览时需要）。
 
 牌组目录的契约：
 
@@ -153,26 +140,40 @@ python3 -m ankicards verify output/xxx.apkg
 | `data/江斯丹顿/` | 品牌内部培训手册（PDF + cards + crops） | ❌ 机密，已被 .gitignore 排除，仅本机构建 |
 | `output/*.apkg` | 构建产物 | 视内容而定；含内部页截图的不要入库 |
 
-### 旧流水线（Android 面试卡组）
+### 适配器（原始资料 → cards/*.json）
 
-`main.py` + `src/` 是历史上的 MD/PDF 解析流水线，仍在维护但不再是新牌组的推荐路径：
+非 JSON 的原始资料先过适配器，再走同一套 `check → build → verify`：
 
 ```bash
-pip3 install -r requirements.txt && pip3 install pymupdf4llm
-python3 main.py          # 输出 output/Android面试卡组.apkg
+python3 -m ankicards import --list
+python3 -m ankicards import data/Android --adapter android-md --out /tmp/android-deck --name "Android面试"
+python3 -m ankicards build  /tmp/android-deck --out output/Android面试卡组.apkg
 ```
+
+| 适配器 | 输入 | 说明 |
+|------|------|------|
+| `android-md` | MD 题库目录 | 复用 `src/parsers` + 质量过滤 + 去重；实测重建 1270 张、5 个子牌组，与已入库卡组一致 |
+| `mqtt-md` | MQTT 知识点 MD | 每个知识点生成一问一答 + 一道四选一；**源数据 `data3_mqtt/` 当前不在仓库，需要自备** |
+
+新增一种格式 = 在 `ankicards/adapters.py` 里加一个带 `@register("名字")` 的函数，
+产出 `DeckData`，不需要再复制打包逻辑。
 
 ### 项目结构
 
 ```
-├── ankicards/               # 卡组工具链：schema / ids / build / verify / cli
+├── ankicards/               # 卡组工具链
+│   ├── schema.py            #   卡片数据契约（唯一真值）
+│   ├── ids.py               #   确定性 deck/model ID
+│   ├── build.py             #   打包（模型、媒体、lite）
+│   ├── verify.py            #   导出后结构审计
+│   ├── preview.py           #   单文件 HTML 预览
+│   ├── adapters.py          #   MD/TXT → 卡片数据（android-md / mqtt-md）
+│   └── cli.py               #   check / build / verify / preview / import
 ├── skills/anki-card-builder/# 流程与判断（agent skill）
 ├── tests/                   # 数据契约与确定性 ID 的回归测试
-├── main.py                  # 旧流水线入口（Android 面试卡组）
-├── generate_mqtt.py         # MQTT 协议卡组（旧式独立脚本）
-├── src/                     # 旧流水线的解析/处理/导出
+├── src/                     # 解析器与处理逻辑（供适配器复用）
 ├── data/Android/            # 公开题库（MD）
-├── data/江斯丹顿/           # 机密手册（不入库）
+├── data/江斯丹顿/           # 机密手册（不入库，仅本机构建）
 ├── output/                  # 生成的 .apkg
 ├── requirements.txt
 └── AGENTS.md / docs/agents/ # 仓库协作约定
@@ -184,6 +185,7 @@ python3 main.py          # 输出 output/Android面试卡组.apkg
 - **结构化题库（MD/TXT）**：先让解析器产出同样的 `DeckSpec`，再复用同一个构建入口；
   需要新增格式时加一个解析函数，而不是复制一份打包逻辑。
 - **需要真实相机/PDF 才能复现的牌组**：同时加一份合成 fixture，否则 CI 无法回归。
+- **新格式**：写一个适配器（`@register`）产出 `DeckData`，禁止再新增一个独立生成脚本。
 
 ### CI/CD
 
