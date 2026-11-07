@@ -15,28 +15,20 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import zipfile
 from pathlib import Path
 
 from .build import build
-from .ingest import DEFAULT_MAX_PAGES, IngestError, load_ingest, main_cli as ingest_cli
+from .errors import CardError
+from .ingest import DEFAULT_MAX_PAGES, load_ingest, main_cli as ingest_cli
 from .preview import build_preview
 from .schema import DeckSpec, load_spec, validate
 from .verify import verify
 
 
-class CliError(Exception):
-    """用法/环境错误：main() 统一转成 stderr 文案 + exit 2。"""
-
-    def __init__(self, message: str, code: int = 2):
-        super().__init__(message)
-        self.code = code
-
-
 def _load_spec(args) -> DeckSpec:
-    try:
-        return load_spec(args.deck, args.name)
-    except SystemExit as exc:
-        raise CliError(str(exc), 2) from exc
+    """load_spec 自己会抛 CardError（坏 JSON / 缺目录 / 缺 cards）。"""
+    return load_spec(args.deck, args.name)
 
 
 def _pdf_info(pdf: str | None):
@@ -45,14 +37,14 @@ def _pdf_info(pdf: str | None):
     try:
         import pymupdf  # type: ignore
     except ImportError as exc:
-        raise CliError("需要 PyMuPDF：pip install -r requirements-render.txt", 2) from exc
+        raise CardError("需要 PyMuPDF：pip install -r requirements-render.txt") from exc
     try:
         doc = pymupdf.open(pdf)
     except Exception as exc:  # noqa: BLE001 - 损坏或非 PDF
-        raise CliError(f"无法打开 PDF {pdf}: {exc}", 2) from exc
+        raise CardError(f"无法打开 PDF {pdf}: {exc}") from exc
     try:
         if getattr(doc, "needs_pass", 0):
-            raise CliError(f"PDF 已加密，请先解密后再使用: {pdf}", 2)
+            raise CardError(f"PDF 已加密，请先解密后再使用: {pdf}")
         return doc.page_count, (doc[0].rect.width, doc[0].rect.height)
     finally:
         doc.close()
@@ -61,10 +53,7 @@ def _pdf_info(pdf: str | None):
 def _ingest_pages(args) -> dict[int, str] | None:
     if not getattr(args, "ingest", None):
         return None
-    try:
-        return load_ingest(args.ingest)
-    except IngestError as exc:
-        raise CliError(str(exc), exc.code) from exc
+    return load_ingest(args.ingest)
 
 
 def _print_report(report) -> None:
@@ -121,14 +110,14 @@ def cmd_import(args) -> int:
             print(name)
         return 0
     if not args.source:
-        raise CliError("缺少源目录/文件（或使用 --list 查看适配器）")
+        raise CardError("缺少源目录/文件（或使用 --list 查看适配器）")
     if not args.adapter:
-        raise CliError(f"请指定 --adapter；可用：{', '.join(sorted(ADAPTERS))}")
+        raise CardError(f"请指定 --adapter；可用：{', '.join(sorted(ADAPTERS))}")
     if not args.out:
-        raise CliError("缺少 --out（输出牌组目录）")
+        raise CardError("缺少 --out（输出牌组目录）")
     func = ADAPTERS.get(args.adapter)
     if func is None:
-        raise CliError(f"未知 adapter: {args.adapter}；可用：{', '.join(sorted(ADAPTERS))}")
+        raise CardError(f"未知 adapter: {args.adapter}；可用：{', '.join(sorted(ADAPTERS))}")
     deck = func(Path(args.source)) if not args.name else func(Path(args.source), name=args.name)
     if args.source_kind:
         deck.source_kind = args.source_kind
@@ -146,10 +135,11 @@ def cmd_ingest(args) -> int:
 
 def cmd_preview(args) -> int:
     spec = _load_spec(args)
+    page_count, page_size = _pdf_info(args.pdf)
     ing = _ingest_pages(args)
     if not _require_verification(spec, ing):
         return 1
-    report = validate(spec, ingest=ing)
+    report = validate(spec, page_count=page_count, page_size=page_size, ingest=ing)
     _print_report(report)
     if not report.ok:
         print("预览中止：先修数据")
@@ -163,8 +153,8 @@ def cmd_preview(args) -> int:
 def cmd_verify(args) -> int:
     try:
         result = verify(args.apkg)
-    except OSError as exc:
-        raise CliError(f"无法读取 apkg {args.apkg}: {exc}", 2) from exc
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise CardError(f"无法读取 apkg {args.apkg}: {exc}") from exc
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=1))
     else:
@@ -237,9 +227,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (CliError, IngestError) as exc:
+    except CardError as exc:
         print(f"✗ {exc}", file=sys.stderr)
-        return getattr(exc, "code", 2)
+        return exc.code
 
 
 if __name__ == "__main__":

@@ -12,8 +12,9 @@ import json
 import re
 from pathlib import Path
 
+from .errors import CardError
 from .sanitize import sanitize_html
-from .schema import DeckSpec
+from .schema import DeckSpec, location_label
 
 _CSS = """
 :root{--gold:#9a7b4f;--line:#e3d8c4;--ink:#23201c;--muted:#8a8378;}
@@ -73,7 +74,7 @@ def build_preview(spec: DeckSpec, out_path: str | Path, pdf: str | None = None,
         try:
             import pymupdf  # type: ignore
         except ImportError as exc:  # pragma: no cover
-            raise SystemExit("生成带图预览需要 PyMuPDF：pip install pymupdf") from exc
+            raise CardError("生成带图预览需要 PyMuPDF：pip install -r requirements-render.txt") from exc
 
         doc = pymupdf.open(pdf)
         try:
@@ -122,7 +123,7 @@ def build_preview(spec: DeckSpec, out_path: str | Path, pdf: str | None = None,
         for card in sec["cards"]:
             ctype = card.get("type", "qa")
             card_pages = card.get("pages") or []
-            src = spec.location_label(card)
+            src = location_label(card)
             slides = "".join(f'<img class="pg" data-k="p{p}" alt="原文 P{p}">'
                              for p in card_pages)
             badge = {"image": " · 图片题", "cloze": " · 填空"}.get(ctype, "")

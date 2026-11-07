@@ -2,7 +2,8 @@
 
 媒体命名规则（唯一真值）：
 - 页面截图：<deck-slug>-p<page:03d>.jpg
-- 产品裁图：<deck-slug>-<crop-name>.jpg
+- 产品裁图：<deck-slug>-crop-<安全名>-<sha1(原名)[:8]>.jpg
+  后半段 hash 保证「图1 / 表1」这类归一到同一安全名的裁图不会互相覆盖。
 所有媒体名均为扁平 basename，不含路径与中文，避免 Anki/AnkiDroid 兼容问题。
 """
 
@@ -14,9 +15,10 @@ import re
 import tempfile
 from pathlib import Path
 
+from .errors import CardError
 from .ids import deck_id, model_id
 from .sanitize import sanitize_html
-from .schema import DeckSpec, card_identity
+from .schema import DeckSpec, identity_seed, location_label
 
 CSS = """
 .card {
@@ -101,9 +103,8 @@ def _import_pymupdf():
     try:
         import pymupdf  # type: ignore
     except ImportError as exc:  # pragma: no cover - 取决于环境
-        raise SystemExit(
-            "需要 PyMuPDF 才能渲染页面/裁图：pip install pymupdf\n"
-            "（渲染是可选能力，纯文本牌组不需要它）"
+        raise CardError(
+            "需要 PyMuPDF 才能渲染页面/裁图：pip install -r requirements-render.txt"
         ) from exc
     return pymupdf
 
@@ -147,10 +148,9 @@ def build(spec: DeckSpec, out_path: str | Path, pdf: str | None = None, lite: bo
     crops = {k: v for k, v in spec.crops.items() if k in used_crops}
 
     if used_crops and not pdf:
-        raise SystemExit(
+        raise CardError(
             f"这个牌组有 {len(used_crops)} 张图片题，必须提供 --pdf 才能裁图；"
-            "或先去掉图片题再构建。"
-        )
+            "或先去掉图片题再构建。")
 
     stats = {"notes": 0, "media": 0, "decks": 0}
     with tempfile.TemporaryDirectory(prefix="ankicards-") as tmp:
@@ -185,7 +185,7 @@ def build(spec: DeckSpec, out_path: str | Path, pdf: str | None = None, lite: bo
             for card in sec["cards"]:
                 ctype = card.get("type", "qa")
                 card_pages = card.get("pages") or []
-                pages_src = spec.location_label(card)
+                pages_src = location_label(card)
                 page_imgs = ""
                 if not lite and pdf:
                     page_imgs = "".join(
@@ -200,19 +200,19 @@ def build(spec: DeckSpec, out_path: str | Path, pdf: str | None = None, lite: bo
                     fields = [sanitize_html(card["text"]), sanitize_html(card.get("extra", "")),
                               pages_src, page_html]
                     model = cloze
-                    seed = f"{full_name}|{json.dumps(card_identity(card), ensure_ascii=False)}"
+                    seed = identity_seed(full_name, card)
                 else:
                     img_html = ""
                     if ctype == "image":
                         fname = crop_names.get(card["img"], "")
                         if not fname:
-                            raise SystemExit(f"裁图失败: {card['img']}")
+                            raise CardError(f"裁图失败: {card['img']}")
                         img_html = f'<img class="photo" src="{fname}">'
                         media.add(fname)
                     fields = [sanitize_html(card["q"]), sanitize_html(card["a"]),
                               img_html, pages_src, page_html]
                     model = basic
-                    seed = f"{full_name}|{json.dumps(card_identity(card), ensure_ascii=False)}"
+                    seed = identity_seed(full_name, card)
 
                 guid = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:12]
                 deck.add_note(genanki.Note(model=model, fields=fields,

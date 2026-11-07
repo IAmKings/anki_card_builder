@@ -118,7 +118,15 @@ python3 -m ankicards preview <牌组目录> --out x.html --ingest .work/ingest/x
 python3 -m ankicards verify output/xxx.apkg
 ```
 
-退出码：`0` 成功；`1` 数据/闸门校验失败；`2` 用法或环境错误（缺参、文件不可读、加密 PDF、坏 JSON）。
+退出码：
+
+| 码 | 含义 | 典型场景 |
+|---|---|---|
+| `0` | 成功 | — |
+| `1` | 数据/闸门失败 | schema 校验不通过、含 pages 却未给 `--ingest`、verify 结构错误 |
+| `2` | 用法或环境错误 | 缺必填参数、源目录为空、拒绝覆盖、坏 JSON、PDF 不可读/加密、缺 `--pdf` 却有图片题、apkg 不是 zip |
+
+坏 JSON、加密 PDF、缺 `--pdf` 这类问题会以可读文案 + exit 2 结束，不再抛 traceback。
 
 构建与预览对**含 pages 的牌组强制要求 `--ingest`**：没有 ingest 产物就无法证明页码真实存在，宁可拒绝也不产出假溯源。
 
@@ -149,15 +157,16 @@ python3 -m ankicards verify output/xxx.apkg
 记录的是流程与判断（怎么选路径、怎么裁图、怎么校对），不复制字段表。
 
 定位语义（**唯一真值**）：
-- `pages` 只表示 **PDF 页码**，用于背面截图与裁图；`source_kind` 不是 `pdf` 的来源写 `pages` 会报错。
+- `pages` 只表示 **PDF 页码**，用于背面截图与裁图；`source_kind` 为 `md/txt/docx/image` 时写 `pages` 会报错；未声明（`unknown`）时兼容放行，但整副牌组只给 1 条 warning。
 - `source` 用于非 PDF 来源的溯源（文件名 > 章节 > 段落 id），MD/TXT/DOCX 一律用它。
 - 两者可以并存：`pages` 出截图，`source` 给段落级定位。
 - 卡片字段是**白名单**，未知字段直接报错，避免“校验通过但构建不消费”的假溯源。
 
 确定性约定（改动前务必读 `ankicards/ids.py`）：
 - deck ID / model ID 由牌组名 hash 得到，**同一名字永远是同一个 ID**，已发布牌组不要改名；
-- 卡片 guid 由「牌组 + 正面 + 背面」决定（图片题额外加入 `img`，避免同题干不同图撞车），重复构建不会产生重复卡片；
-- 媒体名统一为 `<deck-slug>-p<页码>.jpg` / `<deck-slug>-<裁图名>.jpg`，扁平、无中文。
+- 卡片 guid 由 `identity_seed(牌组名, 卡片)` 决定：qa = 问题+答案，cloze = 文本，image = 图片名+问题+答案（与查重身份同源）；同一份数据重复构建 guid 稳定。
+  **注意**：身份算法变更会让重建的 note 变成新卡（Anki 里会新增而不是更新旧卡）——本项目不提供迁移工具，发布后请勿随意改身份规则；
+- 媒体名统一为 `<deck-slug>-p<页码>.jpg` / `<deck-slug>-crop-<安全名>-<hash8>.jpg`，扁平、无中文。
 
 ### 数据与发布
 

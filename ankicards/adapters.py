@@ -11,6 +11,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .errors import CardError
+
 ADAPTERS: dict[str, object] = {}
 
 
@@ -66,7 +68,7 @@ def from_android_md(source: Path, name: str = "Android面试") -> DeckData:
 
     files = sorted(p for p in source.glob("*.md") if not p.name.startswith("."))
     if not files:
-        raise SystemExit(f"{source} 下没有 .md 文件")
+        raise CardError(f"{source} 下没有 .md 文件")
 
     cards = []
     for path in files:
@@ -173,7 +175,7 @@ def from_mqtt_md(source: Path, name: str = "MQTT协议") -> DeckData:
     """MQTT 知识点 MD：每个点生成一张问答 + 一张四选一。"""
     files = [source] if source.is_file() else sorted(source.glob("*.md"))
     if not files:
-        raise SystemExit(f"{source} 下没有 .md 文件")
+        raise CardError(f"{source} 下没有 .md 文件")
     points: list[_Point] = []
     for path in files:
         points.extend(_parse_points(path))
@@ -205,7 +207,7 @@ def write_deck(deck: DeckData, out_dir: str | Path, force: bool = False) -> Path
     cards_dir = out / "cards"
     existing = sorted(cards_dir.glob("*.json")) if cards_dir.is_dir() else []
     if existing and not force:
-        raise SystemExit(
+        raise CardError(
             f"{cards_dir} 已有 {len(existing)} 个卡片文件，拒绝覆盖；确认要重建请加 --force")
     cards_dir.mkdir(parents=True, exist_ok=True)
     for stale in cards_dir.glob("*.json"):

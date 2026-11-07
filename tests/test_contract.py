@@ -5,7 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ankicards.schema import SOURCE_KINDS, card_identity, load_spec, pages_allowed, validate
+from ankicards.schema import (PAGES_ALLOWED, SOURCE_KINDS, card_identity, load_spec,
+                              location_label, validate)
 
 
 def deck(tmp: Path, cards, kind=None):
@@ -21,10 +22,10 @@ def deck(tmp: Path, cards, kind=None):
 
 class EnumTest(unittest.TestCase):
     def test_pages_allowed_matches_contract(self):
-        self.assertTrue(pages_allowed("pdf"))
-        self.assertTrue(pages_allowed("unknown"))
+        self.assertIn("pdf", PAGES_ALLOWED)
+        self.assertIn("unknown", PAGES_ALLOWED)
         for kind in ("md", "txt", "docx", "image"):
-            self.assertFalse(pages_allowed(kind), kind)
+            self.assertNotIn(kind, PAGES_ALLOWED)
 
     def test_warning_text_lists_every_source_kind(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -62,14 +63,13 @@ class LocationLabelTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             spec = deck(Path(tmp), [{"type": "qa", "q": "q", "a": "a", "pages": [1, 3],
                                      "source": "x.md"}], kind="pdf")
-            self.assertEqual(spec.location_label(spec.sections[0]["cards"][0]),
-                             "P1、P3 · x.md")
+            self.assertEqual(location_label(spec.sections[0]["cards"][0]), "P1、P3 · x.md")
 
     def test_source_only_and_escaped(self):
         with tempfile.TemporaryDirectory() as tmp:
             spec = deck(Path(tmp), [{"type": "qa", "q": "q", "a": "a",
                                      "source": "<b>x</b>"}], kind="md")
-            label = spec.location_label(spec.sections[0]["cards"][0])
+            label = location_label(spec.sections[0]["cards"][0])
             self.assertNotIn("<b>", label)
             self.assertIn("&lt;b&gt;", label)
 

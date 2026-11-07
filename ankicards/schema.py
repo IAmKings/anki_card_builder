@@ -8,7 +8,9 @@
       crops.json         # 可选：图片题的裁图区域
 
 定位语义（唯一真值）：
-  pages  —— 只表示 **PDF 页码**，用于背面截图与裁图；非 PDF 来源不得使用。
+  pages  —— 只表示 **PDF 页码**，用于背面截图与裁图。
+            来源为 md/txt/docx/image 时用 pages 直接报错；
+            来源未声明（unknown）时兼容放行，但整副牌组只给 1 条 warning。
   source —— 非 PDF 来源的溯源字符串（文件名 > 章节 > 段落/表格 id），任意来源都可用。
   两者可以并存：pages 给截图，source 给段落级定位。
 
@@ -30,16 +32,14 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .errors import CardError
+
 CARD_TYPES = {"qa", "image", "cloze"}
 SOURCE_KINDS = {"pdf", "docx", "md", "txt", "image", "unknown"}
 # pages 只表示 PDF 页码；unknown 为兼容未声明 source_kind 的历史牌组而放行（仅 warning）。
 PAGES_ALLOWED = {"pdf", "unknown"}
 CARD_FIELDS = {"type", "q", "a", "text", "extra", "pages", "source", "tags", "img"}
 
-
-def pages_allowed(kind: str) -> bool:
-    """该来源类型是否允许使用 pages（PDF 页码）。唯一真值，文档与校验都引用它。"""
-    return kind in PAGES_ALLOWED
 
 
 @dataclass
@@ -76,39 +76,44 @@ class DeckSpec:
     def has_pages(self) -> bool:
         return any(card.get("pages") for _, _, card in self.iter_cards())
 
-    def location_label(self, card: dict) -> str:
-        """卡片背面的溯源行：PDF 页码 + source，统一转义，build 与 preview 共用。"""
-        pages = card.get("pages") or []
-        page_label = ("P" + "、P".join(str(p) for p in pages)) if pages else ""
-        source_label = str(card.get("source", "")).strip()
-        return html.escape(" · ".join(x for x in (page_label, source_label) if x))
-
     def iter_cards(self):
         for sec in self.sections:
             for idx, card in enumerate(sec["cards"], 1):
                 yield sec, idx, card
 
 
+def load_json(path: Path) -> dict | list:
+    """读取并解析 JSON；坏文件给出可读错误与退出码 2，而不是 traceback。"""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CardError(f"{path} 不是合法的 JSON: {exc}") from exc
+
+
 def load_spec(deck_dir: str | Path, name: str | None = None) -> DeckSpec:
     root = Path(deck_dir).expanduser().resolve()
     if not root.is_dir():
-        raise SystemExit(f"不是目录: {root}")
+        raise CardError(f"不是目录: {root}")
 
     manifest = root / "deck.json"
     manifest_name = ""
     manifest_kind = "unknown"
     if manifest.exists():
-        data = json.loads(manifest.read_text(encoding="utf-8"))
+        data = load_json(manifest)
+        if not isinstance(data, dict):
+            raise CardError(f"{manifest} 必须是 JSON 对象")
         manifest_name = str(data.get("name", "")).strip()
         manifest_kind = str(data.get("source_kind", "unknown")).strip() or "unknown"
 
     card_files = sorted((root / "cards").glob("*.json")) if (root / "cards").is_dir() else []
     if not card_files:
-        raise SystemExit(f"找不到卡片数据: {root}/cards/*.json")
+        raise CardError(f"找不到卡片数据: {root}/cards/*.json")
 
     sections = []
     for path in card_files:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = load_json(path)
+        if not isinstance(data, dict):
+            raise CardError(f"{path} 必须是 JSON 对象")
         sections.append(
             {
                 "file": path.name,
@@ -120,7 +125,7 @@ def load_spec(deck_dir: str | Path, name: str | None = None) -> DeckSpec:
     crops_path = root / "crops.json"
     crops = {}
     if crops_path.exists():
-        raw = json.loads(crops_path.read_text(encoding="utf-8"))
+        raw = load_json(crops_path)
         if isinstance(raw, list):
             crops = {c["name"]: c for c in raw if isinstance(c, dict) and c.get("name")}
         elif isinstance(raw, dict):
@@ -139,6 +144,14 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", "", text or "")
 
 
+def location_label(card: dict) -> str:
+    """卡片背面的溯源行：PDF 页码 + source，统一转义，build 与 preview 共用。"""
+    pages = card.get("pages") or []
+    page_label = ("P" + "、P".join(str(p) for p in pages)) if pages else ""
+    source_label = str(card.get("source", "")).strip()
+    return html.escape(" · ".join(x for x in (page_label, source_label) if x))
+
+
 def card_identity(card: dict) -> tuple:
     """「什么算同一张卡」的唯一真值：schema 查重与 build guid 都用它。
 
@@ -152,6 +165,11 @@ def card_identity(card: dict) -> tuple:
     if ctype == "cloze":
         return ("cloze", _norm(card.get("text", "")))
     return ("qa", _norm(card.get("q", "")), _norm(card.get("a", "")))
+
+
+def identity_seed(deck_name: str, card: dict) -> str:
+    """guid 种子的唯一实现：牌组名 + 结构化身份。算法变更需同步改黄金测试。"""
+    return f"{deck_name}|{json.dumps(card_identity(card), ensure_ascii=False)}"
 
 
 def validate(spec: DeckSpec, page_count: int | None = None,
@@ -219,7 +237,7 @@ def validate(spec: DeckSpec, page_count: int | None = None,
                 rep.add_warning(where, "缺少 pages 与 source（无法溯源到原文）")
 
             if pages is not None:
-                if not pages_allowed(kind):
+                if kind not in PAGES_ALLOWED:
                     rep.add_error(where, f"source_kind={kind} 的来源不能用 pages（pages 仅表示 PDF 页）")
                 if not isinstance(pages, list) or not pages:
                     rep.add_error(where, "pages 必须是非空数组（或用 source 溯源）")
@@ -250,7 +268,7 @@ def validate(spec: DeckSpec, page_count: int | None = None,
 
             ident = card_identity(card)
             if ident in seen_identity:
-                rep.add_warning(where, f"与 {seen_identity[ident]} 身份重复（同题干/同图）")
+                rep.add_warning(where, f"与 {seen_identity[ident]} 身份重复（同类型且同内容）")
             else:
                 seen_identity[ident] = where
 

@@ -16,8 +16,11 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from .errors import CardError
+
 DEFAULT_MAX_PAGES = 2000
-EMPTY_PAGE_RATIO_LIMIT = 0.2
+EMPTY_PAGE_RATIO_LIMIT = 0.2   # 超过即给 warning
+EMPTY_FAIL_RATIO = 0.5         # 达到即拒绝
 
 
 @dataclass
@@ -28,12 +31,8 @@ class IngestResult:
     out_path: Path
 
 
-class IngestError(Exception):
-    """摄取失败；code 为进程退出码（2 = 输入/环境问题）。"""
-
-    def __init__(self, message: str, code: int = 2):
-        super().__init__(message)
-        self.code = code
+class IngestError(CardError):
+    """摄取失败；沿用 CardError 的退出码语义（2 = 输入/环境问题）。"""
 
 
 def _sha256(path: Path) -> str:
@@ -137,11 +136,12 @@ def ingest_pdf(pdf_path: str | Path, out: str | Path | None = None,
     if total_chars == 0:
         raise IngestError(
             "未提取到任何文本：这是扫描版/纯图片 PDF，本工具没有 OCR，无法转成卡片。")
-    if empty_ratio >= 0.5:
+    if empty_ratio >= EMPTY_FAIL_RATIO:
         raise IngestError(
-            f"{len(empty_pages)}/{len(units)} 页没有文本（≥50%），疑似扫描件或排版异常页："
+            f"{len(empty_pages)}/{len(units)} 页没有文本"
+            f"（≥{int(EMPTY_FAIL_RATIO * 100)}%），疑似扫描件或排版异常页："
             f"空页 = {empty_pages[:20]}{'…' if len(empty_pages) > 20 else ''}")
-    if empty_ratio > EMPTY_PAGE_RATIO_LIMIT:
+    if empty_ratio >= EMPTY_PAGE_RATIO_LIMIT:
         warnings.append(
             f"{len(empty_pages)}/{len(units)} 页没有文本（>{int(EMPTY_PAGE_RATIO_LIMIT * 100)}%）；"
             "引用这些页的卡片会被 check --ingest 拦下")

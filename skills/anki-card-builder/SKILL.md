@@ -69,7 +69,11 @@ python3 -m ankicards verify output/xxx.apkg
 “ingest + 写卡 + build”整条流程里成立。
 
 **构建与预览同样强制闸门**：牌组一旦引用 `pages`，`build`/`preview` 没有 `--ingest` 会直接拒绝
-（exit 1），避免绕过检查产出假溯源。只有 source-only 的牌组可以不带 ingest 构建。
+（exit 1，属数据/闸门失败），避免绕过检查产出假溯源。只有 source-only 的牌组可以不带 ingest 构建。
+
+**退出码**：`0` 成功；`1` 数据/闸门失败（schema 错误、未过 `--ingest`、verify 结构错误）；
+`2` 用法或环境错误（缺必填参数、坏 JSON、PDF 不可读/加密、有图片题却缺 `--pdf`、apkg 不是 zip）。
+缺 `--ingest` 与缺 `--pdf` 是两类：前者是闸门（1），后者是用法（2）。
 
 ## 溯源闸门
 
@@ -94,6 +98,7 @@ python3 -m ankicards verify output/xxx.apkg
 | 现象 | 原因 / 处理 |
 |---|---|
 | AnkiDroid 报"不是有效的卡组文件" | 微信/QQ 把 `.apkg` 改名成 `apk.1`，改回 `.apkg` |
+| 重建后 Anki 里出现重复卡 | 身份规则变了：guid 由 `identity_seed` 决定，改算法等于新卡；不要改已发布的身份规则 |
 | 重新导入后出现重复牌组 | deck ID 不稳定；本工具链用确定性 ID（`ankicards/ids.py`），**不要改已发布牌组的名字** |
 | 构建报 `Tag contains a space` | Anki 标签不能含空格；构建器会自动把空格换成 `_` |
 | 没有 PDF 时构建失败 | 牌组含图片题；提供 `--pdf`，或先移除图片题 |
