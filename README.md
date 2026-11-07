@@ -1,6 +1,6 @@
 # Anki 卡组生成器
 
-> 多领域知识 Anki 卡片生成 — Android 面试 1270 张 + 山河集珠宝销售 + MQTT 协议 200 张 + 江诗丹顿 2023 培训手册 272 张（含图片题）。
+> 多领域知识 Anki 卡片生成 — Android 面试 1270 张 + MQTT 协议 200 张 + 江诗丹顿 2023 培训手册 273 张（含图片题）。工具链：`python3 -m ankicards check|build|verify`。
 
 ## 快速开始
 
@@ -111,90 +111,79 @@ ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx  # 备选
 
 优先级：DeepSeek > Anthropic。
 
-### 独立卡组生成器
+### 工具链（ankicards）
+
+新牌组统一走一个入口，不再为每份文档写一个脚本：
 
 ```bash
-# MQTT 协议卡组（200 张：100 Q&A + 100 选择题）
-python3 generate_mqtt.py              # 快速模式，不调 AI
-python3 generate_mqtt.py --ai          # AI 生成选择题干扰项 + 扩展提示
+# 校验卡片数据（不需要 genanki/PDF）
+python3 -m ankicards check  <牌组目录> [--pdf 手册.pdf]
 
-# 山河集珠宝销售卡组
-python3 generate_shanheji.py
+# 构建 apkg（有图片题时必须给 --pdf；--lite 不生成原文页截图）
+python3 -m ankicards build  <牌组目录> --out output/xxx.apkg [--pdf 手册.pdf] [--lite]
 
-# 江诗丹顿 2023 培训手册卡组（PDF → 卡片 + 页面截图 + 产品图）
-python3 generate_vc.py            # 生成 apkg + HTML 预览
-python3 generate_vc.py --check    # 只校验卡片数据（页码、图片、字段）
+# 导出后结构审计：媒体、HTML、guid、卡组层级、正面泄露
+python3 -m ankicards verify output/xxx.apkg
 ```
 
-江诗丹顿卡组的数据源在 `data/江斯丹顿/`：`cards/*.json` 是卡片正文（每题带 `pages`
-原文页码），`crops.json` 定义从 PDF 页面裁切产品图的区域，`generate_vc.py` 负责渲染
-页面截图、裁图、生成 `.apkg` 与单文件 HTML 预览。加卡片只需编辑 `cards/*.json`。
+依赖锁定在 `requirements.txt`（`genanki` 必需，`pymupdf` 仅在渲染时用到）。
 
-### 从源码构建（Android 面试卡组）
+牌组目录的契约：
+
+```
+<deck>/
+  deck.json        # 可选：{"name": "顶层牌组名"}
+  cards/*.json     # 必需：{"deck": "子牌组名", "cards": [...]}
+  crops.json       # 可选：图片题的裁图区域（page + rect）
+```
+
+字段定义以 `ankicards/schema.py` 为唯一真值；`skills/anki-card-builder/SKILL.md`
+记录的是流程与判断（怎么选路径、怎么裁图、怎么校对），不复制字段表。
+
+确定性约定（改动前务必读 `ankicards/ids.py`）：
+- deck ID / model ID 由牌组名 hash 得到，**同一名字永远是同一个 ID**，已发布牌组不要改名；
+- 卡片 guid 由「牌组 + 正面 + 背面」决定，重复构建不会产生重复卡片；
+- 媒体名统一为 `<deck-slug>-p<页码>.jpg` / `<deck-slug>-<裁图名>.jpg`，扁平、无中文。
+
+### 数据与发布
+
+| 目录 | 性质 | 是否入库 |
+|---|---|---|
+| `data/Android/` | 公开面试题库（MD） | ✅ 可入库，供他人复现构建 |
+| `data/江斯丹顿/` | 品牌内部培训手册（PDF + cards + crops） | ❌ 机密，已被 .gitignore 排除，仅本机构建 |
+| `output/*.apkg` | 构建产物 | 视内容而定；含内部页截图的不要入库 |
+
+### 旧流水线（Android 面试卡组）
+
+`main.py` + `src/` 是历史上的 MD/PDF 解析流水线，仍在维护但不再是新牌组的推荐路径：
 
 ```bash
-# 安装依赖
-pip3 install pymupdf4llm genanki
-
-# 运行流水线
-python3 main.py
-
-# 输出：output/Android面试卡组.apkg
+pip3 install -r requirements.txt && pip3 install pymupdf4llm
+python3 main.py          # 输出 output/Android面试卡组.apkg
 ```
 
 ### 项目结构
 
 ```
-├── main.py                  # 入口（~45行）
-├── generate_mqtt.py         # MQTT 协议卡组生成器
-├── generate_shanheji.py     # 山河集珠宝销售卡组生成器
-├── generate_vc.py           # 江诗丹顿培训手册卡组生成器（PDF 取图 + genanki）
-├── src/
-│   ├── config.py            # 配置 + API Key 加载
-│   ├── models.py            # 数据模型（Flashcard）
-│   ├── utils.py             # 工具函数（转义、表格转换、内容清理）
-│   ├── pipeline.py          # 流水线编排（Android 面试）
-│   ├── ai_mc_generator.py   # 通用 AI 选择题生成模块
-│   ├── parsers/             # 4种MD + 山河集 TXT 解析器
-│   ├── processing/          # 质量过滤 + 去重
-│   └── export/              # genanki .apkg 导出
-├── data/                    # Android 面试题库（MD）
-├── data2/山河集/            # 山河集珠宝销售题库（TXT）
-├── data3_mqtt/              # MQTT 协议题库（MD）
-├── data/江斯丹顿/           # 江诗丹顿培训手册 PDF + cards/*.json + crops.json
-└── output/                  # 生成的 .apkg
+├── ankicards/               # 卡组工具链：schema / ids / build / verify / cli
+├── skills/anki-card-builder/# 流程与判断（agent skill）
+├── tests/                   # 数据契约与确定性 ID 的回归测试
+├── main.py                  # 旧流水线入口（Android 面试卡组）
+├── generate_mqtt.py         # MQTT 协议卡组（旧式独立脚本）
+├── src/                     # 旧流水线的解析/处理/导出
+├── data/Android/            # 公开题库（MD）
+├── data/江斯丹顿/           # 机密手册（不入库）
+├── output/                  # 生成的 .apkg
+├── requirements.txt
+└── AGENTS.md / docs/agents/ # 仓库协作约定
 ```
 
 ### 贡献新题库
 
-将 MD 文件放入 `data/` 目录，运行 `python3 main.py` 即可增量处理。
-
-支持的 MD 格式：
-| 格式 | 示例 | 答案标记 |
-|------|------|----------|
-| 粗体标题 | `### **1. 问题**` | `**答案**：` |
-| 粗体编号 | `**1. 问题**` | `**确切答案：**` |
-| 纯文本标题 | `### 1. 问题` | `**答：**` |
-| 案例标题 | `### 案例 1：标题` | 内联 |
-
-新卡片会自动去重合并。
-
-### 开发新的领域卡组
-
-1. 创建 `generate_xxx.py` 独立脚本
-2. 导入共享 AI 模块：
-```python
-from src.ai_mc_generator import generate_mc_data
-
-mc_data = generate_mc_data(
-    points=[{"number": 1, "keyword": "...", "explanation": "..."}, ...],
-    domain="领域名",
-    api_key=CONFIG.deepseek_api_key or CONFIG.anthropic_api_key,
-    api_model=...,
-    api_provider="deepseek",
-)
-```
-3. 用户调用 `python3 generate_xxx.py --ai` 启用 AI，一次配置多项目共用。
+- **内容型资料（手册、讲义）**：写 `cards/*.json`，跑 `check → build → verify`。
+- **结构化题库（MD/TXT）**：先让解析器产出同样的 `DeckSpec`，再复用同一个构建入口；
+  需要新增格式时加一个解析函数，而不是复制一份打包逻辑。
+- **需要真实相机/PDF 才能复现的牌组**：同时加一份合成 fixture，否则 CI 无法回归。
 
 ### CI/CD
 

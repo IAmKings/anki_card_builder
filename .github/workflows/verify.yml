@@ -1,0 +1,36 @@
+name: Verify card decks
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Unit tests (schema + deterministic ids)
+        run: python -m unittest discover -s tests -v
+
+      - name: Structural audit of committed decks
+        run: |
+          shopt -s nullglob
+          found=0
+          for apkg in output/*.apkg; do
+            found=1
+            echo "::group::$apkg"
+            python -m ankicards verify "$apkg"
+            echo "::endgroup::"
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "output/ 下没有 .apkg，跳过结构审计"
+          fi

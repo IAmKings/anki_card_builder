@@ -48,10 +48,6 @@ class Config:
     cloze_model_id: int = 1607892320
     parent_deck_id: int = 2059400110
 
-    # 山河集-specific model/deck IDs (separate range to avoid conflicts)
-    shanheji_basic_model_id: int = 1807392319
-    shanheji_cloze_model_id: int = 1807892320
-    shanheji_parent_deck_id: int = 2859400110
 
     # MQTT-specific model/deck IDs (separate range to avoid conflicts)
     mqtt_basic_model_id: int = 1907392319
