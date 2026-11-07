@@ -13,10 +13,19 @@ import hashlib
 import json
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 DEFAULT_MAX_PAGES = 2000
 EMPTY_PAGE_RATIO_LIMIT = 0.2
+
+
+@dataclass
+class IngestResult:
+    """摄取结果：manifest 是落盘内容，out_path 是实际写入位置。"""
+
+    manifest: dict
+    out_path: Path
 
 
 class IngestError(Exception):
@@ -54,16 +63,21 @@ def _default_out(path: Path, sha: str) -> Path:
     return Path.cwd() / ".work" / "ingest" / f"{stem}-{sha[:8]}.json"
 
 
-def _check_out_path(out: Path) -> None:
-    parts = {p.lower() for p in out.resolve().parts}
-    if "cards" in parts:
-        raise IngestError(f"拒绝写入 {out}：ingest 产物不是卡片数据，不能放进 cards/")
-    if "output" in parts:
-        raise IngestError(f"拒绝写入 {out}：产物请留在 .work/，不要放进 output/")
+def _check_out_path(out: Path, repo_root: Path | None = None) -> None:
+    """只按「相对仓库根」判断，避免仓库恰好位于 output/ 或 cards/ 目录下时被误拒。"""
+    root = (repo_root or Path(__file__).resolve().parents[1]).resolve()
+    try:
+        rel = out.resolve().relative_to(root)
+    except ValueError:
+        return  # 仓库外，不限制
+    if rel.parts[:1] == ("output",) or "cards" in rel.parts:
+        raise IngestError(f"拒绝写入 {out}：ingest 产物请留在 .work/，不要放进 output/ 或 cards/")
 
 
 def ingest_pdf(pdf_path: str | Path, out: str | Path | None = None,
-               max_pages: int = DEFAULT_MAX_PAGES) -> dict:
+               max_pages: int = DEFAULT_MAX_PAGES,
+               allow_repaired: bool = False,
+               repo_root: Path | None = None) -> IngestResult:
     path = Path(pdf_path).expanduser().resolve()
     if not path.exists():
         raise IngestError(f"找不到文件: {path}")
@@ -79,7 +93,7 @@ def ingest_pdf(pdf_path: str | Path, out: str | Path | None = None,
 
     sha = _sha256(path)
     out_path = Path(out).expanduser() if out else _default_out(path, sha)
-    _check_out_path(out_path)
+    _check_out_path(out_path, repo_root)
 
     try:
         doc = pymupdf.open(str(path))
@@ -97,6 +111,10 @@ def ingest_pdf(pdf_path: str | Path, out: str | Path | None = None,
                 f"PDF 有 {page_count} 页，超过上限 {max_pages}；"
                 "请拆分文件或用 --max-pages 显式放宽。")
         repaired = bool(getattr(doc, "is_repaired", False))
+        if repaired and not allow_repaired:
+            raise IngestError(
+                "PDF 结构损坏（已被引擎自动修复），文本可能缺失。"
+                "确认接受请加 --allow-repaired 重跑。")
 
         units = []
         empty_pages = []
@@ -114,14 +132,21 @@ def ingest_pdf(pdf_path: str | Path, out: str | Path | None = None,
         doc.close()
 
     total_chars = sum(unit["chars"] for unit in units)
+    empty_ratio = len(empty_pages) / len(units)
+    warnings: list[str] = []
     if total_chars == 0:
         raise IngestError(
             "未提取到任何文本：这是扫描版/纯图片 PDF，本工具没有 OCR，无法转成卡片。")
-    if len(empty_pages) / len(units) > EMPTY_PAGE_RATIO_LIMIT:
+    if empty_ratio >= 0.5:
         raise IngestError(
-            f"{len(empty_pages)}/{len(units)} 页没有文本（超过 "
-            f"{int(EMPTY_PAGE_RATIO_LIMIT * 100)}%），疑似扫描件或排版异常页："
+            f"{len(empty_pages)}/{len(units)} 页没有文本（≥50%），疑似扫描件或排版异常页："
             f"空页 = {empty_pages[:20]}{'…' if len(empty_pages) > 20 else ''}")
+    if empty_ratio > EMPTY_PAGE_RATIO_LIMIT:
+        warnings.append(
+            f"{len(empty_pages)}/{len(units)} 页没有文本（>{int(EMPTY_PAGE_RATIO_LIMIT * 100)}%）；"
+            "引用这些页的卡片会被 check --ingest 拦下")
+    if repaired:
+        warnings.append("PDF 曾被引擎修复（is_repaired），文本可能有缺失，请抽查")
 
     manifest = {
         "format": "pdf",
@@ -132,6 +157,7 @@ def ingest_pdf(pdf_path: str | Path, out: str | Path | None = None,
         "total_chars": total_chars,
         "empty_pages": empty_pages,
         "repaired": repaired,
+        "warnings": warnings,
         "engine": f"pymupdf {pymupdf.__version__}",
         "units": units,
     }
@@ -139,35 +165,39 @@ def ingest_pdf(pdf_path: str | Path, out: str | Path | None = None,
     out_path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(manifest, ensure_ascii=False, indent=1, sort_keys=True) + "\n"
     out_path.write_text(payload, encoding="utf-8")
-    manifest["_out"] = str(out_path)
-    return manifest
+    return IngestResult(manifest=manifest, out_path=out_path)
 
 
 def load_ingest(path: str | Path) -> dict[int, str]:
     """读 ingest 产物，返回 page -> text，供 check 的溯源闸门使用。"""
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise IngestError(f"无法读取 ingest 产物 {path}: {exc}") from exc
     units = data.get("units")
     if not isinstance(units, list):
-        raise SystemExit(f"{path} 不是有效的 ingest 产物（缺少 units）")
+        raise IngestError(f"{path} 不是有效的 ingest 产物（缺少 units）")
     pages: dict[int, str] = {}
     for unit in units:
         page = unit.get("page")
         if isinstance(page, int):
             pages[page] = str(unit.get("text", ""))
     if not pages:
-        raise SystemExit(f"{path} 里没有任何页面")
+        raise IngestError(f"{path} 里没有任何页面")
     return pages
 
 
 def main_cli(args) -> int:
     try:
-        manifest = ingest_pdf(args.source, out=args.out, max_pages=args.max_pages)
+        result = ingest_pdf(args.source, out=args.out, max_pages=args.max_pages,
+                            allow_repaired=getattr(args, "allow_repaired", False))
     except IngestError as exc:
         print(f"✗ {exc}", file=sys.stderr)
         return exc.code
-    print(f"已写入 {manifest['_out']}")
+    manifest = result.manifest
+    print(f"已写入 {result.out_path}")
     print(f"  {manifest['unit_count']} 页 / {manifest['total_chars']} 字 / "
           f"空页 {len(manifest['empty_pages'])} / sha256 {manifest['source_sha256'][:12]}…")
-    if manifest.get("repaired"):
-        print("  ⚠ 该 PDF 曾被修复（is_repaired），文本可能有缺失，请抽查。")
+    for warning in manifest.get("warnings", []):
+        print(f"  ⚠ {warning}")
     return 0

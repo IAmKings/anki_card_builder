@@ -9,14 +9,14 @@
 from __future__ import annotations
 
 import hashlib
-import html
+import json
 import re
 import tempfile
 from pathlib import Path
 
 from .ids import deck_id, model_id
 from .sanitize import sanitize_html
-from .schema import DeckSpec
+from .schema import DeckSpec, card_identity
 
 CSS = """
 .card {
@@ -118,18 +118,17 @@ def _render(pdf_path: str, pages: set[int], crops: dict[str, dict], media_dir: P
         if not lite:
             for pno in sorted(pages):
                 out = media_dir / f"{slug}-p{pno:03d}.jpg"
-                if not out.exists():
-                    doc[pno - 1].get_pixmap(dpi=page_dpi).save(str(out), jpg_quality=quality)
+                doc[pno - 1].get_pixmap(dpi=page_dpi).save(str(out), jpg_quality=quality)
         names: dict[str, str] = {}
         z = crop_dpi / 72.0
         for name, spec in crops.items():
             page = doc[spec["page"] - 1]
             rect = pymupdf.Rect(*spec["rect"]) & page.rect
             safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", str(name))
-            out = media_dir / f"{slug}-{safe_name}.jpg"
-            if not out.exists():
-                page.get_pixmap(matrix=pymupdf.Matrix(z, z), clip=rect).save(
-                    str(out), jpg_quality=quality)
+            digest = hashlib.sha1(str(name).encode("utf-8")).hexdigest()[:8]
+            out = media_dir / f"{slug}-crop-{safe_name}-{digest}.jpg"
+            page.get_pixmap(matrix=pymupdf.Matrix(z, z), clip=rect).save(
+                str(out), jpg_quality=quality)
             names[name] = out.name
         return names
     finally:
@@ -186,9 +185,7 @@ def build(spec: DeckSpec, out_path: str | Path, pdf: str | None = None, lite: bo
             for card in sec["cards"]:
                 ctype = card.get("type", "qa")
                 card_pages = card.get("pages") or []
-                page_label = ("P" + "、P".join(str(p) for p in card_pages)) if card_pages else ""
-                source_label = str(card.get("source", "")).strip()
-                pages_src = html.escape(" · ".join(x for x in (page_label, source_label) if x))
+                pages_src = spec.location_label(card)
                 page_imgs = ""
                 if not lite and pdf:
                     page_imgs = "".join(
@@ -202,7 +199,8 @@ def build(spec: DeckSpec, out_path: str | Path, pdf: str | None = None, lite: bo
                 if ctype == "cloze":
                     fields = [sanitize_html(card["text"]), sanitize_html(card.get("extra", "")),
                               pages_src, page_html]
-                    model, seed = cloze, f"{full_name}|{card['text']}"
+                    model = cloze
+                    seed = f"{full_name}|{json.dumps(card_identity(card), ensure_ascii=False)}"
                 else:
                     img_html = ""
                     if ctype == "image":
@@ -214,10 +212,7 @@ def build(spec: DeckSpec, out_path: str | Path, pdf: str | None = None, lite: bo
                     fields = [sanitize_html(card["q"]), sanitize_html(card["a"]),
                               img_html, pages_src, page_html]
                     model = basic
-                    seed = f"{full_name}|{card['q']}|{card['a']}"
-                    if ctype == "image":
-                        # 图片题：同题干同答案但不同图，必须是不同卡片
-                        seed += f"|img:{card.get('img', '')}"
+                    seed = f"{full_name}|{json.dumps(card_identity(card), ensure_ascii=False)}"
 
                 guid = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:12]
                 deck.add_note(genanki.Note(model=model, fields=fields,

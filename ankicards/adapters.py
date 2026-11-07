@@ -26,6 +26,7 @@ def register(name: str):
 class DeckData:
     name: str
     sections: dict[str, list[dict]] = field(default_factory=dict)
+    source_kind: str = "unknown"
 
     def add(self, section: str, card: dict) -> None:
         self.sections.setdefault(section or "默认", []).append(card)
@@ -73,7 +74,7 @@ def from_android_md(source: Path, name: str = "Android面试") -> DeckData:
     cards = QualityFilter.validate(cards)
     cards = Deduplicator(threshold=0.85).deduplicate(cards)
 
-    deck = DeckData(name=name)
+    deck = DeckData(name=name, source_kind="md")
     for card in cards:
         full = getattr(card, "deck_name", name) or name
         section = full.split("::", 1)[1] if "::" in full else full
@@ -179,7 +180,7 @@ def from_mqtt_md(source: Path, name: str = "MQTT协议") -> DeckData:
     if not points:
         raise SystemExit(f"{source} 里没有解析出知识点（格式需形如 `1. **关键词**：解释`）")
 
-    deck = DeckData(name=name)
+    deck = DeckData(name=name, source_kind="md")
     for index, point in enumerate(points):
         deck.add(point.section, {
             "type": "qa",
@@ -211,7 +212,8 @@ def write_deck(deck: DeckData, out_dir: str | Path, force: bool = False) -> Path
         stale.unlink()
 
     (out / "deck.json").write_text(
-        json.dumps({"name": deck.name}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        json.dumps({"name": deck.name, "source_kind": deck.source_kind},
+                   ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     index = 0
     for section, cards in deck.sections.items():
         if not cards:

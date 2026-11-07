@@ -39,7 +39,8 @@ class IngestPdfTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             pdf = Path(tmp) / "a.pdf"
             _text_pdf(pdf, pages=3)
-            manifest = ingest_pdf(pdf, out=Path(tmp) / "out.json")
+            result = ingest_pdf(pdf, out=Path(tmp) / "out.json")
+            manifest = result.manifest
             self.assertEqual(manifest["unit_count"], 3)
             self.assertEqual(manifest["unit_kind"], "page")
             self.assertEqual([u["id"] for u in manifest["units"]],
@@ -59,7 +60,8 @@ class IngestPdfTest(unittest.TestCase):
             ingest_pdf(pdf, out=two)
             self.assertEqual(one.read_bytes(), two.read_bytes())
             data = json.loads(one.read_text(encoding="utf-8"))
-            self.assertNotIn("/Users/", one.read_text(encoding="utf-8"))
+            self.assertEqual(data["source"], "a.pdf")
+            self.assertNotIn(str(pdf), one.read_text(encoding="utf-8"))
 
     def test_rejects_image_only_pdf(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -93,12 +95,63 @@ class IngestPdfTest(unittest.TestCase):
                 ingest_pdf(pdf, out=Path(tmp) / "x.json", max_pages=2)
             self.assertIn("上限", str(ctx.exception))
 
+    def test_repaired_pdf_rejected_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            good = Path(tmp) / "good.pdf"
+            _text_pdf(good, pages=3)
+            data = good.read_bytes()
+            idx = data.rfind(b"startxref")
+            broken = Path(tmp) / "broken.pdf"
+            broken.write_bytes(data[:idx] + b"startxref\n0\n%%EOF\n")
+            with self.assertRaises(IngestError) as ctx:
+                ingest_pdf(broken, out=Path(tmp) / "x.json")
+            self.assertIn("修复", str(ctx.exception))
+
+    def test_repaired_pdf_allowed_with_flag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            good = Path(tmp) / "good.pdf"
+            _text_pdf(good, pages=3)
+            data = good.read_bytes()
+            idx = data.rfind(b"startxref")
+            broken = Path(tmp) / "broken.pdf"
+            broken.write_bytes(data[:idx] + b"startxref\n0\n%%EOF\n")
+            result = ingest_pdf(broken, out=Path(tmp) / "x.json", allow_repaired=True)
+            self.assertTrue(result.manifest["repaired"])
+            self.assertTrue(any("修复" in w for w in result.manifest["warnings"]))
+
+    def test_moderate_empty_pages_warn_but_succeed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf = Path(tmp) / "mixed.pdf"
+            doc = pymupdf.open()
+            for index in range(10):
+                page = doc.new_page()
+                if index < 7:
+                    page.insert_text((72, 72), f"第 {index + 1} 页")
+            doc.save(str(pdf))
+            doc.close()
+            result = ingest_pdf(pdf, out=Path(tmp) / "x.json")
+            self.assertEqual(result.manifest["unit_count"], 10)
+            self.assertEqual(len(result.manifest["empty_pages"]), 3)
+            self.assertTrue(any("没有文本" in w for w in result.manifest["warnings"]))
+
+    def test_out_outside_repo_is_allowed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            other = Path(tmp) / "elsewhere"
+            repo.mkdir()
+            other.mkdir()
+            pdf = repo / "a.pdf"
+            _text_pdf(pdf)
+            result = ingest_pdf(pdf, out=other / "x.json", repo_root=repo)
+            self.assertTrue(result.out_path.exists())
+
     def test_rejects_out_inside_cards(self):
         with tempfile.TemporaryDirectory() as tmp:
             pdf = Path(tmp) / "a.pdf"
             _text_pdf(pdf)
             with self.assertRaises(IngestError):
-                ingest_pdf(pdf, out=Path(tmp) / "deck" / "cards" / "x.json")
+                ingest_pdf(pdf, out=Path(tmp) / "deck" / "cards" / "x.json",
+                           repo_root=Path(tmp))
 
 
 class IngestRejectTest(unittest.TestCase):

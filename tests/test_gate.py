@@ -53,14 +53,14 @@ class GateTest(unittest.TestCase):
 
     def test_unknown_source_kind_warns_once(self):
         with tempfile.TemporaryDirectory() as tmp:
-            (tmp_ := Path(tmp))
-            (tmp_ / "cards").mkdir()
-            (tmp_ / "cards" / "01.json").write_text(
+            root = Path(tmp)
+            (root / "cards").mkdir()
+            (root / "cards" / "01.json").write_text(
                 json.dumps({"deck": "S", "cards": [
                     {"type": "qa", "q": "q", "a": "a", "pages": [1]}]}, ensure_ascii=False),
                 encoding="utf-8")
-            (tmp_ / "deck.json").write_text(json.dumps({"name": "无 kind"}), encoding="utf-8")
-            report = validate(load_spec(tmp_))
+            (root / "deck.json").write_text(json.dumps({"name": "无 kind"}), encoding="utf-8")
+            report = validate(load_spec(root))
             self.assertTrue(report.ok)
             self.assertEqual(sum("未声明 source_kind" in w for w in report.warnings), 1)
 
