@@ -52,9 +52,9 @@
 预览：`output/江诗丹顿2023培训手册_预览.html`（单文件，双击即可浏览全部卡片与配图）。
 
 > **导入提示**：用微信／QQ 传输 `.apkg` 时，部分版本会把文件改名为 `apk.1`、`apk.2` 之类，AnkiDroid 会提示“这不是一个有效的 Anki 卡组文件”。把后缀改回 `.apkg` 即可导入，或用数据线／网盘传输。
-> 手机空间紧张时可用 `python3 generate_vc.py --lite` 生成轻量版（不含原文页截图，约 1 MB）。
+> 手机空间紧张时可在构建时加 `--lite`（不含原文页截图，约 1 MB）。
 
-> **关于仓库内容**：该手册为品牌内部机密培训资料（页脚标注「专有机密资料——仅供内部培训使用」），因此本仓库只提交生成器、`cards/*.json` 卡片数据与裁剪配置，**原版 PDF、成品 `.apkg` 与 HTML 预览均不提交**，需在本地用 `python3 generate_vc.py` 生成。
+> **关于仓库内容**：该手册为品牌内部机密培训资料（页脚标注「专有机密资料——仅供内部培训使用」），因此本仓库只提交生成器、`cards/*.json` 卡片数据与裁剪配置，**原版 PDF、成品 `.apkg` 与 HTML 预览均不提交**，需在本地用 `python3 -m ankicards build data/江斯丹顿 --pdf <手册.pdf> --out <输出.apkg>` 生成。
 
 ## 内容覆盖
 
@@ -103,15 +103,29 @@
 新牌组统一走一个入口，不再为每份文档写一个脚本：
 
 ```bash
-# 校验卡片数据（不需要 genanki/PDF）
-python3 -m ankicards check  <牌组目录> [--pdf 手册.pdf]
+# 1) 文本型 PDF → 逐页文本（默认写 .work/ingest/，被 gitignore）
+python3 -m ankicards ingest <手册.pdf>
 
-# 构建 apkg（有图片题时必须给 --pdf；--lite 不生成原文页截图）
+# 2) 校验卡片数据；--ingest 启用溯源闸门（页码必须存在且有文本）
+python3 -m ankicards check  <牌组目录> [--pdf 手册.pdf] [--ingest .work/ingest/xxx.json]
+
+# 3) 构建 apkg（有图片题时必须给 --pdf；--lite 不生成原文页截图）
 python3 -m ankicards build  <牌组目录> --out output/xxx.apkg [--pdf 手册.pdf] [--lite]
 
-# 导出后结构审计：媒体、HTML、guid、卡组层级、正面泄露
+# 4) 导出后结构审计：媒体、HTML、guid、卡组层级、正面泄露
 python3 -m ankicards verify output/xxx.apkg
 ```
+
+**首版格式支持矩阵**（明确的能力边界，避免“看起来支持”）：
+
+| 输入 | 状态 | 说明 |
+|---|---|---|
+| 文本型 PDF | ✅ `ingest` | 逐页文本 + 页码引用；加密/损坏/扫描件直接 exit 2 |
+| MD 题库 | ✅ `import --adapter android-md / mqtt-md` | 结构化问答格式 |
+| 卡片 JSON | ✅ `check/build/verify` | 手工/agent 提炼后的事实来源 |
+| DOCX | ❌ 明确拒绝 | Word 无“页”概念，表格/页眉抽取未实现；请先转 PDF |
+| 扫描版 PDF | ❌ 明确拒绝 | 无文本层；本工具不含 OCR |
+| TXT | ⏸ 未注册适配器 | 缺“答案从哪来”的确定性来源，暂不做 |
 
 依赖：`requirements.txt`（genanki，必需）；`requirements-render.txt`（PyMuPDF，仅渲染 PDF 页面/裁图/带图预览时需要）。
 
@@ -119,7 +133,7 @@ python3 -m ankicards verify output/xxx.apkg
 
 ```
 <deck>/
-  deck.json        # 可选：{"name": "顶层牌组名"}
+  deck.json        # 可选：{"name": "顶层牌组名", "source_kind": "pdf"}
   cards/*.json     # 必需：{"deck": "子牌组名", "cards": [...]}
   crops.json       # 可选：图片题的裁图区域（page + rect）
 ```
@@ -127,9 +141,15 @@ python3 -m ankicards verify output/xxx.apkg
 字段定义以 `ankicards/schema.py` 为唯一真值；`skills/anki-card-builder/SKILL.md`
 记录的是流程与判断（怎么选路径、怎么裁图、怎么校对），不复制字段表。
 
+定位语义（**唯一真值**）：
+- `pages` 只表示 **PDF 页码**，用于背面截图与裁图；`source_kind` 不是 `pdf` 的来源写 `pages` 会报错。
+- `source` 用于非 PDF 来源的溯源（文件名 > 章节 > 段落 id），MD/TXT/DOCX 一律用它。
+- 两者可以并存：`pages` 出截图，`source` 给段落级定位。
+- 卡片字段是**白名单**，未知字段直接报错，避免“校验通过但构建不消费”的假溯源。
+
 确定性约定（改动前务必读 `ankicards/ids.py`）：
 - deck ID / model ID 由牌组名 hash 得到，**同一名字永远是同一个 ID**，已发布牌组不要改名；
-- 卡片 guid 由「牌组 + 正面 + 背面」决定，重复构建不会产生重复卡片；
+- 卡片 guid 由「牌组 + 正面 + 背面」决定（图片题额外加入 `img`，避免同题干不同图撞车），重复构建不会产生重复卡片；
 - 媒体名统一为 `<deck-slug>-p<页码>.jpg` / `<deck-slug>-<裁图名>.jpg`，扁平、无中文。
 
 ### 数据与发布
@@ -138,6 +158,7 @@ python3 -m ankicards verify output/xxx.apkg
 |---|---|---|
 | `data/Android/` | 公开面试题库（MD） | ✅ 可入库，供他人复现构建 |
 | `data/江斯丹顿/` | 品牌内部培训手册（PDF + cards + crops） | ❌ 机密，已被 .gitignore 排除，仅本机构建 |
+| `.work/ingest/` | PDF 逐页文本产物 | ❌ 被 gitignore；含全文，不得入库 |
 | `output/*.apkg` | 构建产物 | 视内容而定；含内部页截图的不要入库 |
 
 ### 适配器（原始资料 → cards/*.json）

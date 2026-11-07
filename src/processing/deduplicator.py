@@ -29,7 +29,7 @@ class Deduplicator:
             for existing in unique_cards:
                 if similarity(card.front, existing.front) > self.threshold:
                     is_dup = True
-                    existing.tags = list(set(existing.tags + card.tags))
+                    existing.tags = sorted(set(existing.tags + card.tags))
                     existing.source_section += f" | also in: {card.source_section}"
                     if len(card.back) > len(existing.back):
                         existing.back = card.back

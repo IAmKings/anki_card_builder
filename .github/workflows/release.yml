@@ -53,6 +53,7 @@ jobs:
             3. 开始复习！
 
           files: |
-            output/*.apkg
+            output/Android面试卡组.apkg
+            output/MQTT协议卡组.apkg
           prerelease: false
           make_latest: true

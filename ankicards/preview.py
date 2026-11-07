@@ -12,6 +12,7 @@ import json
 import re
 from pathlib import Path
 
+from .sanitize import sanitize_html
 from .schema import DeckSpec
 
 _CSS = """
@@ -118,20 +119,21 @@ def build_preview(spec: DeckSpec, out_path: str | Path, pdf: str | None = None,
         for card in sec["cards"]:
             ctype = card.get("type", "qa")
             card_pages = card.get("pages") or []
-            src = ("P" + "、P".join(str(p) for p in card_pages)) if card_pages \
-                else str(card.get("source", ""))
+            page_label = ("P" + "、P".join(str(p) for p in card_pages)) if card_pages else ""
+            source_label = str(card.get("source", "")).strip()
+            src = html.escape(" · ".join(x for x in (page_label, source_label) if x))
             slides = "".join(f'<img class="pg" data-k="p{p}" alt="原文 P{p}">'
                              for p in card_pages)
             badge = {"image": " · 图片题", "cloze": " · 填空"}.get(ctype, "")
             if ctype == "image":
                 photo = f'<img class="photo" data-k="c{card["img"]}" alt="{html.escape(card["img"])}">'
-                question, answer = html.escape(card["q"]), card["a"]
+                question, answer = html.escape(card["q"]), sanitize_html(card["a"])
             elif ctype == "cloze":
                 photo = ""
-                question, answer = card["text"], card.get("extra", "")
+                question, answer = sanitize_html(card["text"]), sanitize_html(card.get("extra", ""))
             else:
                 photo = ""
-                question, answer = html.escape(card["q"]), card["a"]
+                question, answer = html.escape(card["q"]), sanitize_html(card["a"])
             tags = "".join(f'<span class="tag">{html.escape(t)}</span>'
                            for t in card.get("tags", []))
             parts.append(

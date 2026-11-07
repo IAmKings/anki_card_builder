@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 from .build import build
+from .ingest import DEFAULT_MAX_PAGES, load_ingest, main_cli as ingest_cli
 from .preview import build_preview
 from .schema import load_spec, validate
 from .verify import verify
@@ -38,7 +39,12 @@ def _pdf_info(pdf: str | None):
 def cmd_check(args) -> int:
     spec = load_spec(args.deck, args.name)
     page_count, page_size = _pdf_info(args.pdf)
-    report = validate(spec, page_count=page_count, page_size=page_size)
+    ingest = None
+    if args.ingest:
+        ingest = load_ingest(args.ingest)
+        if page_count is None:
+            page_count = len(ingest)
+    report = validate(spec, page_count=page_count, page_size=page_size, ingest=ingest)
     print(f"牌组 {spec.name}：{len(spec.sections)} 个子牌组 / {spec.card_count} 张卡片")
     for warning in report.warnings:
         print(f"  ⚠ {warning}")
@@ -82,11 +88,15 @@ def cmd_import(args) -> int:
         print(f"未知 adapter: {args.adapter}；可用：{', '.join(sorted(ADAPTERS))}")
         return 2
     deck = func(Path(args.source)) if not args.name else func(Path(args.source), name=args.name)
-    out = write_deck(deck, args.out)
+    out = write_deck(deck, args.out, force=args.force)
     print(f"已导出到 {out}：{len(deck.sections)} 个子牌组 / {deck.card_count} 张卡片")
     for section, cards in deck.sections.items():
         print(f"  · {section}: {len(cards)} 张")
     return 0
+
+
+def cmd_ingest(args) -> int:
+    return ingest_cli(args)
 
 
 def cmd_preview(args) -> int:
@@ -122,6 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     p_check = sub.add_parser("check", help="只校验卡片数据（不需要 genanki）")
     p_check.add_argument("deck", help="牌组目录（含 cards/*.json）")
     p_check.add_argument("--pdf", help="源 PDF，用于页码上界与裁图越界检查")
+    p_check.add_argument("--ingest", help="ingest 产物 JSON；启用溯源闸门（页码必须存在且有文本）")
     p_check.add_argument("--name", help="覆盖顶层牌组名")
     p_check.set_defaults(func=cmd_check)
 
@@ -140,7 +151,15 @@ def main(argv: list[str] | None = None) -> int:
     p_import.add_argument("--out", help="输出牌组目录")
     p_import.add_argument("--name", help="覆盖顶层牌组名")
     p_import.add_argument("--list", action="store_true", help="列出可用适配器")
+    p_import.add_argument("--force", action="store_true", help="目标目录已有卡片时也强制覆盖")
     p_import.set_defaults(func=cmd_import)
+
+    p_ingest = sub.add_parser("ingest", help="把文本型 PDF 摄取成逐页文本 JSON")
+    p_ingest.add_argument("source", help="PDF 文件（DOCX/MD/TXT 会被明确拒绝）")
+    p_ingest.add_argument("--out", help="输出 JSON；默认 .work/ingest/<名字>-<sha8>.json")
+    p_ingest.add_argument("--max-pages", type=int, default=DEFAULT_MAX_PAGES,
+                          help=f"页数上限（默认 {DEFAULT_MAX_PAGES}）")
+    p_ingest.set_defaults(func=cmd_ingest)
 
     p_preview = sub.add_parser("preview", help="只生成单文件 HTML 预览")
     p_preview.add_argument("deck")

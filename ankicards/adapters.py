@@ -195,10 +195,17 @@ def from_mqtt_md(source: Path, name: str = "MQTT协议") -> DeckData:
 # ---------------------------------------------------------------------------
 
 
-def write_deck(deck: DeckData, out_dir: str | Path) -> Path:
-    """把适配结果写成 <out>/deck.json + <out>/cards/NN.json。"""
+def write_deck(deck: DeckData, out_dir: str | Path, force: bool = False) -> Path:
+    """把适配结果写成 <out>/deck.json + <out>/cards/NN.json。
+
+    目标目录已有卡片时默认拒绝，避免一次误操作删掉手工卡片；确需覆盖请传 force=True。
+    """
     out = Path(out_dir)
     cards_dir = out / "cards"
+    existing = sorted(cards_dir.glob("*.json")) if cards_dir.is_dir() else []
+    if existing and not force:
+        raise SystemExit(
+            f"{cards_dir} 已有 {len(existing)} 个卡片文件，拒绝覆盖；确认要重建请加 --force")
     cards_dir.mkdir(parents=True, exist_ok=True)
     for stale in cards_dir.glob("*.json"):
         stale.unlink()

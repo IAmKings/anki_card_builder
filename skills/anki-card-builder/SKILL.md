@@ -19,12 +19,15 @@ description: 把一份学习资料（PDF 手册/幻灯片、Markdown 题库、TX
 ## 快速开始
 
 ```bash
-python3 -m ankicards check  <deck目录> [--pdf 手册.pdf]
+python3 -m ankicards ingest <手册.pdf>          # 逐页文本，默认写 .work/ingest/
+python3 -m ankicards check  <deck目录> [--pdf 手册.pdf] [--ingest .work/ingest/xxx.json]
 python3 -m ankicards build  <deck目录> --out output/xxx.apkg [--pdf 手册.pdf] [--lite]
 python3 -m ankicards verify output/xxx.apkg
 ```
 
-- `check`：只读数据，不需要 genanki 与 PDF；给了 `--pdf` 才会检查页码上界与裁图越界。
+- `ingest`：只支持**文本型 PDF**；加密/损坏/扫描件会 exit 2，不做 OCR。DOCX/MD/TXT 会被明确拒绝。
+- `check`：只读数据；给了 `--pdf` 才检查页码上界与裁图越界；给了 `--ingest` 则启用**溯源闸门**——
+  卡片引用的每一页必须出现在 ingest 产物里，且该页有文本。
 - `build`：有图片题时**必须**给 `--pdf`（裁图要用源文件）；`--lite` 不生成原文页截图。
 - `verify`：把 `.apkg` 解开做结构审计，不需要源数据，可对任何牌组使用。
 
@@ -32,7 +35,7 @@ python3 -m ankicards verify output/xxx.apkg
 
 ```
 <deck>/
-  deck.json        # 可选：{"name": "顶层牌组名"}
+  deck.json        # 可选：{"name": "顶层牌组名", "source_kind": "pdf"}
   cards/*.json     # 必需：{"deck": "子牌组名", "cards": [...]}
   crops.json       # 可选：图片题的裁图区域
 ```
@@ -43,10 +46,29 @@ python3 -m ankicards verify output/xxx.apkg
 ## 工作流
 
 1. **读文档，选路径**：手册/讲义这类"内容要人来提炼"的，直接写 `cards/*.json`；已经是结构化题库（MD/TXT）的，先让 parser 产出同样的 `DeckSpec`，再走同一个 CLI。两条路最后汇入同一个构建入口。
-2. **写卡片**：一卡一问；`pages` 必填（背面溯源截图）；图片题先在 `crops.json` 里定 rect。
+2. **写卡片**：一卡一问。定位分两种：PDF 用 `pages`（背面截图、可被 ingest 对账）；非 PDF 用 `source`（文件名 > 章节 > 段落 id）。两者可并存，`source` 不会被丢掉。图片题先在 `crops.json` 里定 rect。
 3. **裁图自检**：把所有裁图拼成一张 contact sheet 目视确认——框里只能有目标对象，一张图里出现两个款式会直接产生错误答案。
 4. **check → build → verify → 真机导入一次**（Anki 桌面或 AnkiDroid）。
 5. **事实校对**：按页抽查，记录校对基于哪一版数据（内容 hash 或 git commit），否则改一张卡就要整份重来。
+
+## 能力边界（不要承诺超出这里的）
+
+| 输入 | 行为 |
+|---|---|
+| 文本型 PDF | `ingest` 出逐页文本，可写卡、可出页面截图 |
+| 扫描版 PDF | exit 2：无文本层，本工具无 OCR |
+| 加密/损坏 PDF | exit 2：请先解密/修复 |
+| DOCX | exit 2：Word 无“页”概念，表格/页眉未实现；先转 PDF |
+| MD/TXT | 走 `import --adapter`，没有“自动抽卡” |
+
+**ingest 只产出文本，不产出卡片。** 卡片仍由人或 agent 依据文本撰写；“PDF → 卡组”这句话只在
+“ingest + 写卡 + build”整条流程里成立。
+
+## 溯源闸门
+
+`check --ingest <json>` 会拒绝三类假溯源：页码不存在、页码存在但该页无文本、非 PDF 来源写 `pages`。
+未知卡片字段直接报错（白名单）。请把这条命令当作交付前的必跑项——`check`/`verify` 全绿只证明结构正确，
+不证明事实正确。
 
 ## 图片题
 

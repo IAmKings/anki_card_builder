@@ -3,15 +3,21 @@
 一个 deck 目录的形状：
 
     <deck>/
-      deck.json          # 可选：{"name": "顶层牌组名"}
+      deck.json          # 可选：{"name": "顶层牌组名", "source_kind": "pdf"}
       cards/*.json       # 必需：每个文件 {"deck": "子牌组名", "cards": [...]}
       crops.json         # 可选：图片题的裁图区域
 
-卡片字段（唯一真值，见 docs/agents/issue-tracker.md 之外的 skills/anki-card-builder/SKILL.md）：
+定位语义（唯一真值）：
+  pages  —— 只表示 **PDF 页码**，用于背面截图与裁图；非 PDF 来源不得使用。
+  source —— 非 PDF 来源的溯源字符串（文件名 > 章节 > 段落/表格 id），任意来源都可用。
+  两者可以并存：pages 给截图，source 给段落级定位。
+
+卡片字段（白名单，未知字段直接报错）：
   type: qa | image | cloze
   q / a: 问答与图片题的正面/背面
   text / extra: 填空题的正文（含 {{c1::…}}）与补充
-  pages: list[int]，原文页码，必须非空（用于背面溯源图与校验）
+  pages: list[int]，PDF 页码，可省略
+  source: str，溯源说明，可省略（与 pages 至少给一个）
   tags: list[str]，可选
   img: 图片题正面图的 crop 名，必须在 crops.json 中存在
 """
@@ -24,6 +30,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 CARD_TYPES = {"qa", "image", "cloze"}
+SOURCE_KINDS = {"pdf", "docx", "md", "txt", "image", "unknown"}
+CARD_FIELDS = {"type", "q", "a", "text", "extra", "pages", "source", "tags", "img"}
 
 
 @dataclass
@@ -48,8 +56,9 @@ class Report:
 class DeckSpec:
     root: Path
     name: str
-    sections: list[dict]           # [{"file": str, "deck": str, "cards": list[dict]}]
-    crops: dict[str, dict]         # name -> {"page": int, "rect": [x0,y0,x1,y1]}
+    sections: list[dict]              # [{"file": str, "deck": str, "cards": list[dict]}]
+    crops: dict[str, dict]            # name -> {"page": int, "rect": [x0,y0,x1,y1]}
+    source_kind: str = "unknown"
 
     @property
     def card_count(self) -> int:
@@ -68,9 +77,11 @@ def load_spec(deck_dir: str | Path, name: str | None = None) -> DeckSpec:
 
     manifest = root / "deck.json"
     manifest_name = ""
+    manifest_kind = "unknown"
     if manifest.exists():
         data = json.loads(manifest.read_text(encoding="utf-8"))
         manifest_name = str(data.get("name", "")).strip()
+        manifest_kind = str(data.get("source_kind", "unknown")).strip() or "unknown"
 
     card_files = sorted((root / "cards").glob("*.json")) if (root / "cards").is_dir() else []
     if not card_files:
@@ -101,6 +112,7 @@ def load_spec(deck_dir: str | Path, name: str | None = None) -> DeckSpec:
         name=(name or manifest_name or root.name),
         sections=sections,
         crops=crops,
+        source_kind=manifest_kind,
     )
 
 
@@ -118,18 +130,30 @@ def _card_identity(ctype: str, card: dict) -> str:
 
 
 def validate(spec: DeckSpec, page_count: int | None = None,
-             page_size: tuple[float, float] | None = None) -> Report:
-    """校验卡片契约。page_count / page_size 只有在能拿到源 PDF 时才传。
+             page_size: tuple[float, float] | None = None,
+             ingest: dict[int, str] | None = None) -> Report:
+    """校验卡片契约。
 
-    不依赖 PDF：没有 PDF 时跳过页码上界与裁图越界检查，而不是报错。
+    page_count / page_size：能拿到源 PDF 时才传，用于页码上界与裁图越界。
+    ingest：ingest 产物（page -> 文本）。传入时启用**溯源闸门**：
+            卡片引用的每一页都必须存在且该页文本非空。
     """
     rep = Report()
     seen_sections: dict[str, str] = {}
     seen_identity: dict[str, str] = {}
     used_crops: set[str] = set()
+    kind = spec.source_kind
 
     if not spec.name.strip():
         rep.add_error("", "deck 名称为空")
+    if kind not in SOURCE_KINDS:
+        rep.add_error("deck.json", f"source_kind 非法: {kind!r}（可选 {sorted(SOURCE_KINDS)}）")
+    if kind == "unknown" and spec.card_count:
+        rep.add_warning("deck.json", "未声明 source_kind（可选 pdf/md/txt/image），按 unknown 处理")
+
+    pages_without_text: list[int] = []
+    if ingest is not None:
+        pages_without_text = sorted(p for p, text in ingest.items() if not (text or "").strip())
 
     for sec in spec.sections:
         sec_name = sec["deck"]
@@ -142,6 +166,10 @@ def validate(spec: DeckSpec, page_count: int | None = None,
 
         for idx, card in enumerate(sec["cards"], 1):
             where = f"{where_sec}#{idx}"
+            unknown = set(card) - CARD_FIELDS
+            if unknown:
+                rep.add_error(where, f"未知字段: {sorted(unknown)}（白名单之外的字段不会被构建）")
+
             ctype = card.get("type", "qa")
             if ctype not in CARD_TYPES:
                 rep.add_error(where, f"未知 type={ctype!r}")
@@ -163,7 +191,10 @@ def validate(spec: DeckSpec, page_count: int | None = None,
             source = str(card.get("source", "")).strip()
             if pages is None and not source:
                 rep.add_warning(where, "缺少 pages 与 source（无法溯源到原文）")
-            elif pages is not None:
+
+            if pages is not None:
+                if kind not in ("pdf", "unknown"):
+                    rep.add_error(where, f"source_kind={kind} 的来源不能用 pages（pages 仅表示 PDF 页）")
                 if not isinstance(pages, list) or not pages:
                     rep.add_error(where, "pages 必须是非空数组（或用 source 溯源）")
                 else:
@@ -172,6 +203,11 @@ def validate(spec: DeckSpec, page_count: int | None = None,
                             rep.add_error(where, f"页码非法: {p!r}")
                         elif page_count is not None and p > page_count:
                             rep.add_error(where, f"页码 {p} 超出 1-{page_count}")
+                        elif ingest is not None:
+                            if p not in ingest:
+                                rep.add_error(where, f"页码 {p} 不在 ingest 产物中")
+                            elif p in pages_without_text:
+                                rep.add_error(where, f"页码 {p} 在 ingest 产物中没有文本（可能是空页）")
 
             tags = card.get("tags", [])
             if tags and not (isinstance(tags, list) and all(isinstance(t, str) for t in tags)):
@@ -192,7 +228,6 @@ def validate(spec: DeckSpec, page_count: int | None = None,
             else:
                 seen_identity[ident] = where
 
-    # 裁图配置
     for crop_name, crop in spec.crops.items():
         where = f"crops:{crop_name}"
         page = crop.get("page")

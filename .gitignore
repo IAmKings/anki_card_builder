@@ -79,5 +79,5 @@ AGENTS.md
 # 公开测试数据请在 data/Android/ 下，正常提交
 # ============================================================
 data/江斯丹顿/
-output/江诗丹顿*.apkg
-output/江诗丹顿*_预览.html
+output/江*丹顿*.apkg
+output/江*丹顿*.html
