@@ -21,11 +21,14 @@ description: 把一份学习资料（PDF 手册/幻灯片、Markdown 题库、TX
 ```bash
 python3 -m ankicards ingest <手册.pdf>          # 逐页文本，默认写 .work/ingest/
 python3 -m ankicards check  <deck目录> [--pdf 手册.pdf] [--ingest .work/ingest/xxx.json]
-python3 -m ankicards build  <deck目录> --out output/xxx.apkg [--pdf 手册.pdf] [--lite]
+python3 -m ankicards build  <deck目录> --out output/xxx.apkg --ingest .work/ingest/xxx.json \
+                            [--pdf 手册.pdf] [--lite]
+python3 -m ankicards preview <deck目录> --out x.html --ingest .work/ingest/xxx.json [--pdf 手册.pdf]
 python3 -m ankicards verify output/xxx.apkg
 ```
 
-- `ingest`：只支持**文本型 PDF**；加密/损坏/扫描件会 exit 2，不做 OCR。DOCX/MD/TXT 会被明确拒绝。
+- `ingest`：只支持**文本型 PDF**；加密/扫描件会 exit 2，损坏但可修复的 PDF 默认也拒绝
+  （`--allow-repaired` 显式放行）；不做 OCR。DOCX/MD/TXT 会被明确拒绝。
 - `check`：只读数据；给了 `--pdf` 才检查页码上界与裁图越界；给了 `--ingest` 则启用**溯源闸门**——
   卡片引用的每一页必须出现在 ingest 产物里，且该页有文本。
 - `build`：有图片题时**必须**给 `--pdf`（裁图要用源文件）；`--lite` 不生成原文页截图。
@@ -57,12 +60,16 @@ python3 -m ankicards verify output/xxx.apkg
 |---|---|
 | 文本型 PDF | `ingest` 出逐页文本，可写卡、可出页面截图 |
 | 扫描版 PDF | exit 2：无文本层，本工具无 OCR |
-| 加密/损坏 PDF | exit 2：请先解密/修复 |
+| 加密 PDF | exit 2：请先解密 |
+| 可修复的损坏 PDF | 默认 exit 2；`--allow-repaired` 放行并警告 |
 | DOCX | exit 2：Word 无“页”概念，表格/页眉未实现；先转 PDF |
 | MD/TXT | 走 `import --adapter`，没有“自动抽卡” |
 
 **ingest 只产出文本，不产出卡片。** 卡片仍由人或 agent 依据文本撰写；“PDF → 卡组”这句话只在
 “ingest + 写卡 + build”整条流程里成立。
+
+**构建与预览同样强制闸门**：牌组一旦引用 `pages`，`build`/`preview` 没有 `--ingest` 会直接拒绝
+（exit 1），避免绕过检查产出假溯源。只有 source-only 的牌组可以不带 ingest 构建。
 
 ## 溯源闸门
 

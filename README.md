@@ -109,12 +109,18 @@ python3 -m ankicards ingest <手册.pdf>
 # 2) 校验卡片数据；--ingest 启用溯源闸门（页码必须存在且有文本）
 python3 -m ankicards check  <牌组目录> [--pdf 手册.pdf] [--ingest .work/ingest/xxx.json]
 
-# 3) 构建 apkg（有图片题时必须给 --pdf；--lite 不生成原文页截图）
-python3 -m ankicards build  <牌组目录> --out output/xxx.apkg [--pdf 手册.pdf] [--lite]
+# 3) 构建 apkg：引用 PDF 页码的牌组**必须**给 --ingest；有图片题时还必须给 --pdf
+python3 -m ankicards build  <牌组目录> --out output/xxx.apkg --ingest .work/ingest/xxx.json \
+                            [--pdf 手册.pdf] [--lite]
 
-# 4) 导出后结构审计：媒体、HTML、guid、卡组层级、正面泄露
+# 4) 预览同样过闸门；5) 导出后结构审计
+python3 -m ankicards preview <牌组目录> --out x.html --ingest .work/ingest/xxx.json [--pdf 手册.pdf]
 python3 -m ankicards verify output/xxx.apkg
 ```
+
+退出码：`0` 成功；`1` 数据/闸门校验失败；`2` 用法或环境错误（缺参、文件不可读、加密 PDF、坏 JSON）。
+
+构建与预览对**含 pages 的牌组强制要求 `--ingest`**：没有 ingest 产物就无法证明页码真实存在，宁可拒绝也不产出假溯源。
 
 **首版格式支持矩阵**（明确的能力边界，避免“看起来支持”）：
 
@@ -124,7 +130,8 @@ python3 -m ankicards verify output/xxx.apkg
 | MD 题库 | ✅ `import --adapter android-md / mqtt-md` | 结构化问答格式 |
 | 卡片 JSON | ✅ `check/build/verify` | 手工/agent 提炼后的事实来源 |
 | DOCX | ❌ 明确拒绝 | Word 无“页”概念，表格/页眉抽取未实现；请先转 PDF |
-| 扫描版 PDF | ❌ 明确拒绝 | 无文本层；本工具不含 OCR |
+| 扫描版 PDF | ❌ 明确拒绝 | 无文本层；本工具不含 OCR；空页 ≥50% 时 ingest 直接拒绝 |
+| 可修复的损坏 PDF | ⚠️ 默认拒绝 | `--allow-repaired` 显式放行；文本可能缺失 |
 | TXT | ⏸ 未注册适配器 | 缺“答案从哪来”的确定性来源，暂不做 |
 
 依赖：`requirements.txt`（genanki，必需）；`requirements-render.txt`（PyMuPDF，仅渲染 PDF 页面/裁图/带图预览时需要）。
@@ -177,7 +184,8 @@ python3 -m ankicards build  /tmp/android-deck --out output/Android面试卡组.a
 | `mqtt-md` | MQTT 知识点 MD | 每个知识点生成一问一答 + 一道四选一；**源数据 `data3_mqtt/` 当前不在仓库，需要自备** |
 
 新增一种格式 = 在 `ankicards/adapters.py` 里加一个带 `@register("名字")` 的函数，
-产出 `DeckData`，不需要再复制打包逻辑。
+产出 `DeckData`（含 `source_kind`），不需要再复制打包逻辑。`import` 会把
+`{"name", "source_kind"}` 一并写进 `deck.json`，不再出现“每次 check 一条 unknown 警告”。
 
 ### 项目结构
 
