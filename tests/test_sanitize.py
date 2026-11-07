@@ -57,6 +57,11 @@ class SanitizeBypassTest(unittest.TestCase):
         self.assertEqual(clean.count("src="), 1)
         self.assertNotIn("<script", clean.lower())
 
+    def test_self_closing_blocked_tags_removed(self):
+        self.assertEqual(sanitize_html("<script/>ok"), "ok")
+        self.assertEqual(sanitize_html("<style/>ok"), "ok")
+        self.assertIn("<br>", sanitize_html("a<br/>b"))
+
     def test_relative_media_kept(self):
         self.assertIn('src="abc-1.jpg"', sanitize_html('<img class="photo" src="abc-1.jpg">'))
 

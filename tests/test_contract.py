@@ -21,7 +21,7 @@ def deck(tmp: Path, cards, kind=None):
 
 
 class EnumTest(unittest.TestCase):
-    def test_pages_allowed_matches_contract(self):
+    def test_pages_allowlist_matches_contract(self):
         self.assertIn("pdf", PAGES_ALLOWED)
         self.assertIn("unknown", PAGES_ALLOWED)
         for kind in ("md", "txt", "docx", "image"):

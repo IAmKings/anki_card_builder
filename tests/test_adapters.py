@@ -1,5 +1,6 @@
 """适配器回归测试：MD → DeckData 的形状与数量。"""
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -37,7 +38,9 @@ class MqttAdapterTest(unittest.TestCase):
             out = write_deck(from_mqtt_md(src), Path(tmp) / "deck")
             self.assertTrue((out / "deck.json").exists())
             self.assertEqual(len(list((out / "cards").glob("*.json"))), 1)
-            self.assertIn('"name": "MQTT协议"', (out / "deck.json").read_text(encoding="utf-8"))
+            manifest = json.loads((out / "deck.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["name"], "MQTT协议")
+            self.assertEqual(manifest["source_kind"], "md")
 
 
 if __name__ == "__main__":

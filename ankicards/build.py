@@ -200,7 +200,6 @@ def build(spec: DeckSpec, out_path: str | Path, pdf: str | None = None, lite: bo
                     fields = [sanitize_html(card["text"]), sanitize_html(card.get("extra", "")),
                               pages_src, page_html]
                     model = cloze
-                    seed = identity_seed(full_name, card)
                 else:
                     img_html = ""
                     if ctype == "image":
@@ -212,9 +211,9 @@ def build(spec: DeckSpec, out_path: str | Path, pdf: str | None = None, lite: bo
                     fields = [sanitize_html(card["q"]), sanitize_html(card["a"]),
                               img_html, pages_src, page_html]
                     model = basic
-                    seed = identity_seed(full_name, card)
 
-                guid = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:12]
+                guid = hashlib.sha1(
+                    identity_seed(full_name, card).encode("utf-8")).hexdigest()[:12]
                 deck.add_note(genanki.Note(model=model, fields=fields,
                                            tags=_tags(sec["deck"], card), guid=guid))
                 stats["notes"] += 1

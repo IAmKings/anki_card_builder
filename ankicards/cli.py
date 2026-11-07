@@ -22,7 +22,7 @@ from .build import build
 from .errors import CardError
 from .ingest import DEFAULT_MAX_PAGES, load_ingest, main_cli as ingest_cli
 from .preview import build_preview
-from .schema import DeckSpec, load_spec, validate
+from .schema import SOURCE_KINDS, DeckSpec, load_spec, validate
 from .verify import verify
 
 
@@ -63,20 +63,23 @@ def _print_report(report) -> None:
         print(f"  ✗ {error}")
 
 
-def _require_verification(spec: DeckSpec, ingest: dict[int, str] | None) -> bool:
-    """含 pages 的牌组构建/预览前必须过溯源闸门。"""
-    if spec.has_pages and ingest is None:
-        print("✗ 该牌组引用 PDF 页码，请先 ingest 并传 --ingest（交付前必须过溯源闸门）",
-              file=sys.stderr)
-        return False
-    return True
+def _validated(args, *, gate: bool = True):
+    """check/build/preview 共用的校验链：PDF 预检 → ingest → 闸门 → validate。
+
+    gate=True 时，含 pages 的牌组没有 ingest 直接抛 CardError(code=1)（闸门失败）。
+    """
+    spec = _load_spec(args)
+    page_count, page_size = _pdf_info(args.pdf)
+    ingest = _ingest_pages(args)
+    if gate and spec.has_pages and ingest is None:
+        raise CardError(
+            "该牌组引用 PDF 页码，请先 ingest 并传 --ingest（交付前必须过溯源闸门）", code=1)
+    report = validate(spec, page_count=page_count, page_size=page_size, ingest=ingest)
+    return spec, report
 
 
 def cmd_check(args) -> int:
-    spec = _load_spec(args)
-    page_count, page_size = _pdf_info(args.pdf)
-    report = validate(spec, page_count=page_count, page_size=page_size,
-                      ingest=_ingest_pages(args))
+    spec, report = _validated(args, gate=False)
     print(f"牌组 {spec.name}：{len(spec.sections)} 个子牌组 / {spec.card_count} 张卡片")
     _print_report(report)
     print("校验通过" if report.ok else f"校验失败：{len(report.errors)} 个错误")
@@ -84,12 +87,7 @@ def cmd_check(args) -> int:
 
 
 def cmd_build(args) -> int:
-    spec = _load_spec(args)
-    page_count, page_size = _pdf_info(args.pdf)
-    ingest = _ingest_pages(args)
-    if not _require_verification(spec, ingest):
-        return 1
-    report = validate(spec, page_count=page_count, page_size=page_size, ingest=ingest)
+    spec, report = _validated(args)
     _print_report(report)
     if not report.ok:
         print("构建中止：先修数据")
@@ -134,12 +132,7 @@ def cmd_ingest(args) -> int:
 
 
 def cmd_preview(args) -> int:
-    spec = _load_spec(args)
-    page_count, page_size = _pdf_info(args.pdf)
-    ing = _ingest_pages(args)
-    if not _require_verification(spec, ing):
-        return 1
-    report = validate(spec, page_count=page_count, page_size=page_size, ingest=ing)
+    spec, report = _validated(args)
     _print_report(report)
     if not report.ok:
         print("预览中止：先修数据")
@@ -197,7 +190,8 @@ def main(argv: list[str] | None = None) -> int:
     p_import.add_argument("--adapter", help="适配器名，见 --list")
     p_import.add_argument("--out", help="输出牌组目录")
     p_import.add_argument("--name", help="覆盖顶层牌组名")
-    p_import.add_argument("--source-kind", help="写入 deck.json 的 source_kind（默认由适配器决定）")
+    p_import.add_argument("--source-kind", choices=sorted(SOURCE_KINDS - {"unknown"}),
+                          help="写入 deck.json 的 source_kind（默认由适配器决定）")
     p_import.add_argument("--list", action="store_true", help="列出可用适配器")
     p_import.add_argument("--force", action="store_true", help="目标目录已有卡片时也强制覆盖")
     p_import.set_defaults(func=cmd_import)

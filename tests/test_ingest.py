@@ -119,6 +119,35 @@ class IngestPdfTest(unittest.TestCase):
             self.assertTrue(result.manifest["repaired"])
             self.assertTrue(any("修复" in w for w in result.manifest["warnings"]))
 
+    def test_half_empty_pages_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf = Path(tmp) / "half.pdf"
+            doc = pymupdf.open()
+            for index in range(10):
+                page = doc.new_page()
+                if index < 5:
+                    page.insert_text((72, 72), f"第 {index + 1} 页")
+            doc.save(str(pdf))
+            doc.close()
+            with self.assertRaises(IngestError) as ctx:
+                ingest_pdf(pdf, out=Path(tmp) / "x.json")
+            self.assertEqual(ctx.exception.code, 2)
+            self.assertIn("50%", str(ctx.exception))
+
+    def test_exactly_twenty_percent_warns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf = Path(tmp) / "fifth.pdf"
+            doc = pymupdf.open()
+            for index in range(10):
+                page = doc.new_page()
+                if index < 8:
+                    page.insert_text((72, 72), f"第 {index + 1} 页")
+            doc.save(str(pdf))
+            doc.close()
+            result = ingest_pdf(pdf, out=Path(tmp) / "x.json")
+            self.assertEqual(len(result.manifest["empty_pages"]), 2)
+            self.assertTrue(any("没有文本" in w for w in result.manifest["warnings"]))
+
     def test_moderate_empty_pages_warn_but_succeed(self):
         with tempfile.TemporaryDirectory() as tmp:
             pdf = Path(tmp) / "mixed.pdf"

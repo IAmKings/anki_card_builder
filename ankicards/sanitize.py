@@ -38,10 +38,6 @@ class _Sanitizer(HTMLParser):
         self.drop_depth = 0
 
     def _emit_start(self, tag: str, attrs) -> None:
-        tag = tag.lower()
-        if tag in DROP_WITH_CONTENT:
-            self.drop_depth += 1
-            return
         if self.drop_depth or tag not in ALLOWED_TAGS:
             return
         rendered = [f"<{tag}"]
@@ -62,11 +58,16 @@ class _Sanitizer(HTMLParser):
         self.parts.append("".join(rendered))
 
     def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+        if tag in DROP_WITH_CONTENT:
+            self.drop_depth += 1
+            return
         self._emit_start(tag, attrs)
 
     def handle_startendtag(self, tag, attrs):
-        if tag.lower() in DROP_WITH_CONTENT:
-            return
+        tag = tag.lower()
+        if tag in DROP_WITH_CONTENT:
+            return  # 自闭合的 script/style 没有内容可丢
         self._emit_start(tag, attrs)
 
     def handle_endtag(self, tag):
