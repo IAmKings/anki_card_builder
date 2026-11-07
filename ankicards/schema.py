@@ -24,6 +24,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import re
 from dataclasses import dataclass, field
@@ -31,7 +32,14 @@ from pathlib import Path
 
 CARD_TYPES = {"qa", "image", "cloze"}
 SOURCE_KINDS = {"pdf", "docx", "md", "txt", "image", "unknown"}
+# pages 只表示 PDF 页码；unknown 为兼容未声明 source_kind 的历史牌组而放行（仅 warning）。
+PAGES_ALLOWED = {"pdf", "unknown"}
 CARD_FIELDS = {"type", "q", "a", "text", "extra", "pages", "source", "tags", "img"}
+
+
+def pages_allowed(kind: str) -> bool:
+    """该来源类型是否允许使用 pages（PDF 页码）。唯一真值，文档与校验都引用它。"""
+    return kind in PAGES_ALLOWED
 
 
 @dataclass
@@ -63,6 +71,17 @@ class DeckSpec:
     @property
     def card_count(self) -> int:
         return sum(len(s["cards"]) for s in self.sections)
+
+    @property
+    def has_pages(self) -> bool:
+        return any(card.get("pages") for _, _, card in self.iter_cards())
+
+    def location_label(self, card: dict) -> str:
+        """卡片背面的溯源行：PDF 页码 + source，统一转义，build 与 preview 共用。"""
+        pages = card.get("pages") or []
+        page_label = ("P" + "、P".join(str(p) for p in pages)) if pages else ""
+        source_label = str(card.get("source", "")).strip()
+        return html.escape(" · ".join(x for x in (page_label, source_label) if x))
 
     def iter_cards(self):
         for sec in self.sections:
@@ -120,13 +139,19 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", "", text or "")
 
 
-def _card_identity(ctype: str, card: dict) -> str:
-    """重复检测的身份键——图片题必须带上 img，否则同题干的不同图片会被误判重复。"""
+def card_identity(card: dict) -> tuple:
+    """「什么算同一张卡」的唯一真值：schema 查重与 build guid 都用它。
+
+    qa    -> (q, a)          同题干不同答案不算重复
+    image -> (img, q, a)     同题干同答案但不同图也不算重复
+    cloze -> (text,)         cloze 的答案是隐藏的，文本即身份
+    """
+    ctype = card.get("type", "qa")
     if ctype == "image":
-        return f"image::{card.get('img', '')}"
+        return ("image", str(card.get("img", "")), _norm(card.get("q", "")), _norm(card.get("a", "")))
     if ctype == "cloze":
-        return f"cloze::{_norm(card.get('text', ''))}"
-    return f"qa::{_norm(card.get('q', ''))}"
+        return ("cloze", _norm(card.get("text", "")))
+    return ("qa", _norm(card.get("q", "")), _norm(card.get("a", "")))
 
 
 def validate(spec: DeckSpec, page_count: int | None = None,
@@ -140,7 +165,7 @@ def validate(spec: DeckSpec, page_count: int | None = None,
     """
     rep = Report()
     seen_sections: dict[str, str] = {}
-    seen_identity: dict[str, str] = {}
+    seen_identity: dict[tuple, str] = {}
     used_crops: set[str] = set()
     kind = spec.source_kind
 
@@ -149,7 +174,8 @@ def validate(spec: DeckSpec, page_count: int | None = None,
     if kind not in SOURCE_KINDS:
         rep.add_error("deck.json", f"source_kind 非法: {kind!r}（可选 {sorted(SOURCE_KINDS)}）")
     if kind == "unknown" and spec.card_count:
-        rep.add_warning("deck.json", "未声明 source_kind（可选 pdf/md/txt/image），按 unknown 处理")
+        choices = "、".join(sorted(SOURCE_KINDS - {"unknown"}))
+        rep.add_warning("deck.json", f"未声明 source_kind（可选 {choices}），按 unknown 处理")
 
     pages_without_text: list[int] = []
     if ingest is not None:
@@ -193,7 +219,7 @@ def validate(spec: DeckSpec, page_count: int | None = None,
                 rep.add_warning(where, "缺少 pages 与 source（无法溯源到原文）")
 
             if pages is not None:
-                if kind not in ("pdf", "unknown"):
+                if not pages_allowed(kind):
                     rep.add_error(where, f"source_kind={kind} 的来源不能用 pages（pages 仅表示 PDF 页）")
                 if not isinstance(pages, list) or not pages:
                     rep.add_error(where, "pages 必须是非空数组（或用 source 溯源）")
@@ -222,7 +248,7 @@ def validate(spec: DeckSpec, page_count: int | None = None,
                 else:
                     used_crops.add(img)
 
-            ident = _card_identity(ctype, card)
+            ident = card_identity(card)
             if ident in seen_identity:
                 rep.add_warning(where, f"与 {seen_identity[ident]} 身份重复（同题干/同图）")
             else:

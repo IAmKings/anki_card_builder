@@ -58,11 +58,22 @@ class SchemaTest(unittest.TestCase):
             self.assertTrue(report.ok)
             self.assertFalse(any("身份重复" in w for w in report.warnings))
 
-    def test_same_text_duplicate_warns(self):
+    def test_same_question_different_answer_is_not_duplicate(self):
+        """同题干不同答案是两张卡；旧实现只按 q 判重会误报。"""
         with tempfile.TemporaryDirectory() as tmp:
             spec = make_deck(Path(tmp), [
                 {"type": "qa", "q": "同一问题", "a": "A", "pages": [1]},
                 {"type": "qa", "q": "同一问题 ", "a": "B", "pages": [1]},
+            ])
+            report = validate(spec)
+            self.assertTrue(report.ok)
+            self.assertFalse(any("身份重复" in w for w in report.warnings))
+
+    def test_identical_qa_duplicate_warns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            spec = make_deck(Path(tmp), [
+                {"type": "qa", "q": "同一问题", "a": "同一答案", "pages": [1]},
+                {"type": "qa", "q": "同一问题 ", "a": "同一答案 ", "pages": [1]},
             ])
             report = validate(spec)
             self.assertTrue(any("身份重复" in w for w in report.warnings))

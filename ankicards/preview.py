@@ -67,6 +67,7 @@ def build_preview(spec: DeckSpec, out_path: str | Path, pdf: str | None = None,
                   title: str | None = None) -> Path:
     out = Path(out_path)
     images: dict[str, str] = {}
+    crop_keys: dict[str, str] = {}
 
     if pdf:
         try:
@@ -84,14 +85,16 @@ def build_preview(spec: DeckSpec, out_path: str | Path, pdf: str | None = None,
                     pix.tobytes("jpg", jpg_quality=60)).decode("ascii")
             used = {c["img"] for _, _, c in spec.iter_cards() if c.get("type") == "image"}
             z = 150 / 72.0
-            for name in used:
+            for index, name in enumerate(sorted(used), 1):
                 crop = spec.crops.get(name)
                 if not crop:
                     continue
                 page = doc[crop["page"] - 1]
                 rect = pymupdf.Rect(*crop["rect"]) & page.rect
                 pix = page.get_pixmap(matrix=pymupdf.Matrix(z, z), clip=rect)
-                images["c" + name] = base64.b64encode(
+                key = f"c{index}"
+                crop_keys[name] = key
+                images[key] = base64.b64encode(
                     pix.tobytes("jpg", jpg_quality=72)).decode("ascii")
         finally:
             doc.close()
@@ -119,14 +122,15 @@ def build_preview(spec: DeckSpec, out_path: str | Path, pdf: str | None = None,
         for card in sec["cards"]:
             ctype = card.get("type", "qa")
             card_pages = card.get("pages") or []
-            page_label = ("P" + "、P".join(str(p) for p in card_pages)) if card_pages else ""
-            source_label = str(card.get("source", "")).strip()
-            src = html.escape(" · ".join(x for x in (page_label, source_label) if x))
+            src = spec.location_label(card)
             slides = "".join(f'<img class="pg" data-k="p{p}" alt="原文 P{p}">'
                              for p in card_pages)
             badge = {"image": " · 图片题", "cloze": " · 填空"}.get(ctype, "")
             if ctype == "image":
-                photo = f'<img class="photo" data-k="c{card["img"]}" alt="{html.escape(card["img"])}">'
+                img_name = str(card.get("img", ""))
+                key = crop_keys.get(img_name, "")
+                photo = (f'<img class="photo" data-k="{html.escape(key, quote=True)}" '
+                         f'alt="{html.escape(img_name, quote=True)}">') if key else ""
                 question, answer = html.escape(card["q"]), sanitize_html(card["a"])
             elif ctype == "cloze":
                 photo = ""
