@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .errors import CardError
+from .schema import load_json
 
 DEFAULT_MAX_PAGES = 2000
 EMPTY_PAGE_RATIO_LIMIT = 0.2   # 超过即给 warning
@@ -171,17 +172,19 @@ def ingest_pdf(pdf_path: str | Path, out: str | Path | None = None,
 def load_ingest(path: str | Path) -> dict[int, str]:
     """读 ingest 产物，返回 page -> text，供 check 的溯源闸门使用。"""
     try:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise IngestError(f"无法读取 ingest 产物 {path}: {exc}") from exc
+        data = load_json(Path(path))
+    except CardError as exc:
+        raise IngestError(str(exc)) from exc
+    if not isinstance(data, dict):
+        raise IngestError(f"{path} 不是有效的 ingest 产物（顶层必须是对象）")
     units = data.get("units")
     if not isinstance(units, list):
         raise IngestError(f"{path} 不是有效的 ingest 产物（缺少 units）")
     pages: dict[int, str] = {}
     for unit in units:
-        page = unit.get("page")
-        if isinstance(page, int):
-            pages[page] = str(unit.get("text", ""))
+        if not isinstance(unit, dict) or not isinstance(unit.get("page"), int):
+            raise IngestError(f"{path}: units 必须是含整数 page 的对象数组")
+        pages[unit["page"]] = str(unit.get("text", ""))
     if not pages:
         raise IngestError(f"{path} 里没有任何页面")
     return pages

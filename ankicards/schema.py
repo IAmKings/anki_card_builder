@@ -86,8 +86,8 @@ def load_json(path: Path) -> dict | list:
     """读取并解析 JSON；坏文件给出可读错误与退出码 2，而不是 traceback。"""
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise CardError(f"{path} 不是合法的 JSON: {exc}") from exc
+    except (OSError, ValueError) as exc:  # UnicodeDecodeError 也是 ValueError
+        raise CardError(f"{path} 不是合法的 UTF-8 JSON: {exc}") from exc
 
 
 def load_spec(deck_dir: str | Path, name: str | None = None) -> DeckSpec:
@@ -114,11 +114,14 @@ def load_spec(deck_dir: str | Path, name: str | None = None) -> DeckSpec:
         data = load_json(path)
         if not isinstance(data, dict):
             raise CardError(f"{path} 必须是 JSON 对象")
+        cards = data.get("cards")
+        if not isinstance(cards, list) or not all(isinstance(c, dict) for c in cards):
+            raise CardError(f"{path}: cards 必须是对象数组")
         sections.append(
             {
                 "file": path.name,
                 "deck": str(data.get("deck", "")).strip(),
-                "cards": list(data.get("cards", [])),
+                "cards": cards,
             }
         )
 
@@ -127,9 +130,15 @@ def load_spec(deck_dir: str | Path, name: str | None = None) -> DeckSpec:
     if crops_path.exists():
         raw = load_json(crops_path)
         if isinstance(raw, list):
-            crops = {c["name"]: c for c in raw if isinstance(c, dict) and c.get("name")}
+            if not all(isinstance(c, dict) and c.get("name") for c in raw):
+                raise CardError(f"{crops_path}: 数组元素必须是含 name 的对象")
+            crops = {c["name"]: c for c in raw}
         elif isinstance(raw, dict):
+            if not all(isinstance(v, dict) for v in raw.values()):
+                raise CardError(f"{crops_path}: 每个裁图值必须是对象")
             crops = raw
+        else:
+            raise CardError(f"{crops_path}: 必须是对象或数组")
 
     return DeckSpec(
         root=root,
@@ -215,8 +224,13 @@ def validate(spec: DeckSpec, page_count: int | None = None,
                 rep.add_error(where, f"未知字段: {sorted(unknown)}（白名单之外的字段不会被构建）")
 
             ctype = card.get("type", "qa")
-            if ctype not in CARD_TYPES:
+            if not isinstance(ctype, str) or ctype not in CARD_TYPES:
                 rep.add_error(where, f"未知 type={ctype!r}")
+                continue
+            bad_types = [k for k in ("q", "a", "text", "extra", "source")
+                         if k in card and not isinstance(card[k], str)]
+            if bad_types:
+                rep.add_error(where, f"字段类型错误: {', '.join(bad_types)} 必须是字符串")
                 continue
 
             if ctype in ("qa", "image"):
