@@ -123,8 +123,13 @@ def _render(pdf_path: str, pages: set[int], crops: dict[str, dict], media_dir: P
         names: dict[str, str] = {}
         z = crop_dpi / 72.0
         for name, spec in crops.items():
-            page = doc[spec["page"] - 1]
+            page_no = spec["page"]
+            if not isinstance(page_no, int) or not (1 <= page_no <= doc.page_count):
+                raise CardError(f"裁图 {name} 引用第 {page_no} 页，超出 1-{doc.page_count}")
+            page = doc[page_no - 1]
             rect = pymupdf.Rect(*spec["rect"]) & page.rect
+            if rect.is_empty or rect.width < 1 or rect.height < 1:
+                raise CardError(f"裁图 {name} 落在第 {page_no} 页有效区域之外")
             safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", str(name))
             digest = hashlib.sha1(str(name).encode("utf-8")).hexdigest()[:8]
             out = media_dir / f"{slug}-crop-{safe_name}-{digest}.jpg"

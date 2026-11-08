@@ -31,9 +31,10 @@ def _load_spec(args) -> DeckSpec:
     return load_spec(args.deck, args.name)
 
 
-def _pdf_info(pdf: str | None):
+def _pdf_info(pdf: str | None, pages: set[int] | None = None):
+    """返回 (page_count, page_sizes)。page_sizes 只取需要的页，避免大 PDF 全量读尺寸。"""
     if not pdf:
-        return None, None
+        return None, {}
     try:
         import pymupdf  # type: ignore
     except ImportError as exc:
@@ -45,7 +46,9 @@ def _pdf_info(pdf: str | None):
     try:
         if getattr(doc, "needs_pass", 0):
             raise CardError(f"PDF 已加密，请先解密后再使用: {pdf}")
-        return doc.page_count, (doc[0].rect.width, doc[0].rect.height)
+        wanted = {p for p in (pages or set()) if isinstance(p, int) and 1 <= p <= doc.page_count}
+        sizes = {p: (doc[p - 1].rect.width, doc[p - 1].rect.height) for p in sorted(wanted)}
+        return doc.page_count, sizes
     finally:
         doc.close()
 
@@ -69,12 +72,13 @@ def _validated(args, *, gate: bool = True):
     gate=True 时，含 pages 的牌组没有 ingest 直接抛 CardError(code=1)（闸门失败）。
     """
     spec = _load_spec(args)
-    page_count, page_size = _pdf_info(args.pdf)
+    crop_pages = {c.get("page") for c in spec.crops.values() if isinstance(c.get("page"), int)}
+    page_count, page_sizes = _pdf_info(args.pdf, crop_pages)
     ingest = _ingest_pages(args)
     if gate and spec.has_pages and ingest is None:
         raise CardError(
             "该牌组引用 PDF 页码，请先 ingest 并传 --ingest（交付前必须过溯源闸门）", code=1)
-    report = validate(spec, page_count=page_count, page_size=page_size, ingest=ingest)
+    report = validate(spec, page_count=page_count, page_sizes=page_sizes, ingest=ingest)
     return spec, report
 
 

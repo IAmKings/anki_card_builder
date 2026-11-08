@@ -182,11 +182,12 @@ def identity_seed(deck_name: str, card: dict) -> str:
 
 
 def validate(spec: DeckSpec, page_count: int | None = None,
-             page_size: tuple[float, float] | None = None,
+             page_sizes: dict[int, tuple[float, float]] | None = None,
              ingest: dict[int, str] | None = None) -> Report:
     """校验卡片契约。
 
-    page_count / page_size：能拿到源 PDF 时才传，用于页码上界与裁图越界。
+    page_count / page_sizes：能拿到源 PDF 时才传；page_sizes 是按页的真实尺寸，
+    用于按“被裁的那一页”判断裁图是否越界（不同页尺寸可以不同）。
     ingest：ingest 产物（page -> 文本）。传入时启用**溯源闸门**：
             卡片引用的每一页都必须存在且该页文本非空。
     """
@@ -301,10 +302,11 @@ def validate(spec: DeckSpec, page_count: int | None = None,
         x0, y0, x1, y1 = rect
         if not (x0 < x1 and y0 < y1):
             rep.add_error(where, f"rect 顺序非法: {rect}")
-        if page_size:
-            pw, ph = page_size
+        size = (page_sizes or {}).get(page)
+        if size:
+            pw, ph = size
             if not (0 <= x0 < pw and 0 <= x1 <= pw and 0 <= y0 < ph and 0 <= y1 <= ph):
-                rep.add_error(where, f"rect 超出页面 {pw}x{ph}: {rect}")
+                rep.add_error(where, f"rect 超出第 {page} 页 {pw:g}x{ph:g}: {rect}")
         if crop_name not in used_crops:
             rep.add_warning(where, "裁图未被任何图片题引用")
 
