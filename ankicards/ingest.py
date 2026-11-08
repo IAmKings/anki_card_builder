@@ -13,6 +13,7 @@ import hashlib
 import json
 import re
 import sys
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from .schema import load_json
 DEFAULT_MAX_PAGES = 2000
 DEFAULT_MAX_BLOCKS = 5000
 MAX_DOCX_BYTES = 20 * 1024 * 1024
+MAX_DOCX_UNCOMPRESSED_BYTES = 200 * 1024 * 1024
 EMPTY_PAGE_RATIO_LIMIT = 0.2   # 超过即给 warning
 EMPTY_FAIL_RATIO = 0.5         # 达到即拒绝
 
@@ -71,6 +73,21 @@ def _import_docx():
     except ImportError as exc:  # pragma: no cover - 依赖环境
         raise IngestError("需要 python-docx：pip install -r requirements.txt") from exc
     return docx
+
+
+def _check_docx_zip(path: Path) -> None:
+    """DOCX 是 zip；限制解压后总大小，避免很小的压缩包膨胀成超大 XML。"""
+    try:
+        with zipfile.ZipFile(path) as archive:
+            total = sum(info.file_size for info in archive.infolist())
+    except zipfile.BadZipFile as exc:
+        raise IngestError(f"无法打开 DOCX（损坏或已加密）: {exc}") from exc
+    except OSError as exc:
+        raise IngestError(f"无法读取 DOCX: {exc}") from exc
+    if total > MAX_DOCX_UNCOMPRESSED_BYTES:
+        raise IngestError(
+            f"DOCX 解压后约 {total // (1024 * 1024)} MB，超过 "
+            f"{MAX_DOCX_UNCOMPRESSED_BYTES // (1024 * 1024)} MB 上限；请拆分文档。")
 
 
 def iter_docx_blocks(doc):
@@ -223,6 +240,7 @@ def ingest_docx(docx_path: str | Path, out: str | Path | None = None,
     if path.stat().st_size > MAX_DOCX_BYTES:
         raise IngestError(
             f"DOCX 超过 {MAX_DOCX_BYTES // (1024 * 1024)} MB 上限；请拆分文档。")
+    _check_docx_zip(path)
 
     sha = file_sha256(path)
     out_path = Path(out).expanduser() if out else _default_out(path, sha)

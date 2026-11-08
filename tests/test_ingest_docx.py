@@ -10,6 +10,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 try:
     import docx  # type: ignore
@@ -88,6 +89,25 @@ class IngestDocxTest(unittest.TestCase):
                 ingest_mod.ingest_docx(path, out=Path(tmp) / "out.json")
             self.assertEqual(ctx.exception.code, 2)
             self.assertIn("DOCX", str(ctx.exception))
+
+    def test_zip_uncompressed_size_cap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "a.docx"
+            make_docx(path, ["一"])
+            with mock.patch.object(ingest_mod, "MAX_DOCX_UNCOMPRESSED_BYTES", 100):
+                with self.assertRaises(ingest_mod.IngestError) as ctx:
+                    ingest_mod.ingest_docx(path, out=Path(tmp) / "out.json")
+            self.assertEqual(ctx.exception.code, 2)
+            self.assertIn("解压后", str(ctx.exception))
+
+    def test_encrypted_like_docx_rejected_as_ingest_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "encrypted.docx"
+            path.write_bytes(bytes.fromhex("d0cf11e0a1b11ae1") + b"\0" * 512)
+            with self.assertRaises(ingest_mod.IngestError) as ctx:
+                ingest_mod.ingest_docx(path, out=Path(tmp) / "out.json")
+            self.assertEqual(ctx.exception.code, 2)
+            self.assertIn("损坏或已加密", str(ctx.exception))
 
     def test_max_blocks(self):
         with tempfile.TemporaryDirectory() as tmp:
