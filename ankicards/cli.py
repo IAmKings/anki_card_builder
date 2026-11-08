@@ -20,7 +20,7 @@ from pathlib import Path
 
 from .build import build
 from .errors import CardError, GateError
-from .ingest import DEFAULT_MAX_PAGES, load_ingest, main_cli as ingest_cli
+from .ingest import DEFAULT_MAX_PAGES, file_sha256, load_ingest, main_cli as ingest_cli
 from .preview import build_preview
 from .schema import SOURCE_KINDS, DeckSpec, load_spec, validate
 from .verify import verify
@@ -53,7 +53,7 @@ def _pdf_info(pdf: str | None, pages: set[int] | None = None):
         doc.close()
 
 
-def _ingest_pages(args) -> dict[int, str] | None:
+def _ingest_pages(args):
     if not getattr(args, "ingest", None):
         return None
     return load_ingest(args.ingest)
@@ -76,7 +76,14 @@ def _validated(args):
     crop_pages = {c.get("page") for c in spec.crops.values() if isinstance(c.get("page"), int)}
     page_count, page_sizes = _pdf_info(args.pdf, crop_pages)
     ingest = _ingest_pages(args)
-    report = validate(spec, page_count=page_count, page_sizes=page_sizes, ingest=ingest)
+    if ingest and args.pdf:
+        if ingest.source_sha256:
+            if file_sha256(Path(args.pdf)) != ingest.source_sha256:
+                raise CardError("--ingest 与 --pdf 不是同一份文件（sha256 不一致）")
+        else:
+            print("  ⚠ ingest 缺少 source_sha256，跳过同源校验", file=sys.stderr)
+    report = validate(spec, page_count=page_count, page_sizes=page_sizes,
+                      ingest=ingest.pages if ingest else None)
     return spec, report, ingest
 
 

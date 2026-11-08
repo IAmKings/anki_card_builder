@@ -103,7 +103,7 @@
 新牌组统一走一个入口，不再为每份文档写一个脚本：
 
 ```bash
-# 1) 文本型 PDF → 逐页文本（默认写 .work/ingest/，被 gitignore）
+# 1) 文本型 PDF → 逐页文本（默认写 .work/ingest/，被 gitignore；带 source_sha256）
 python3 -m ankicards ingest <手册.pdf>
 
 # 2) 校验卡片数据；--ingest 启用溯源闸门（页码必须存在且有文本）
@@ -129,6 +129,7 @@ python3 -m ankicards verify output/xxx.apkg
 坏 JSON、加密 PDF、缺 `--pdf` 这类问题会以可读文案 + exit 2 结束，不再抛 traceback。
 
 构建与预览对**含 pages 的牌组强制要求 `--ingest`**：没有 ingest 产物就无法证明页码真实存在，宁可拒绝也不产出假溯源。
+同时给 `--pdf` 与 `--ingest` 时会比对 `source_sha256`；不是同一份文件直接 exit 2。
 
 **首版格式支持矩阵**（明确的能力边界，避免“看起来支持”）：
 

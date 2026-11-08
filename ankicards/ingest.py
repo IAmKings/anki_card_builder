@@ -25,6 +25,14 @@ EMPTY_FAIL_RATIO = 0.5         # 达到即拒绝
 
 
 @dataclass
+class IngestData:
+    """load_ingest 的返回值：页码→文本 + 源文件 sha256（可能缺省）。"""
+
+    pages: dict[int, str]
+    source_sha256: str | None = None
+
+
+@dataclass
 class IngestResult:
     """摄取结果：manifest 是落盘内容，out_path 是实际写入位置。"""
 
@@ -36,7 +44,7 @@ class IngestError(CardError):
     """摄取失败；沿用 CardError 的退出码语义（2 = 输入/环境问题）。"""
 
 
-def _sha256(path: Path) -> str:
+def file_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1 << 20), b""):
@@ -91,7 +99,7 @@ def ingest_pdf(pdf_path: str | Path, out: str | Path | None = None,
         raise IngestError(
             "需要 PyMuPDF 才能摄取 PDF：pip install -r requirements-render.txt") from exc
 
-    sha = _sha256(path)
+    sha = file_sha256(path)
     out_path = Path(out).expanduser() if out else _default_out(path, sha)
     _check_out_path(out_path, repo_root)
 
@@ -169,8 +177,8 @@ def ingest_pdf(pdf_path: str | Path, out: str | Path | None = None,
     return IngestResult(manifest=manifest, out_path=out_path)
 
 
-def load_ingest(path: str | Path) -> dict[int, str]:
-    """读 ingest 产物，返回 page -> text，供 check 的溯源闸门使用。"""
+def load_ingest(path: str | Path) -> IngestData:
+    """读 ingest 产物，返回页码文本与源文件 sha256，供溯源闸门使用。"""
     try:
         data = load_json(Path(path))
     except CardError as exc:
@@ -187,7 +195,10 @@ def load_ingest(path: str | Path) -> dict[int, str]:
         pages[unit["page"]] = str(unit.get("text", ""))
     if not pages:
         raise IngestError(f"{path} 里没有任何页面")
-    return pages
+    sha = data.get("source_sha256")
+    if sha is not None and not isinstance(sha, str):
+        raise IngestError(f"{path}: source_sha256 必须是字符串")
+    return IngestData(pages=pages, source_sha256=sha)
 
 
 def main_cli(args) -> int:
