@@ -199,7 +199,7 @@ class IngestRejectTest(unittest.TestCase):
             docx.Document().save(str(path))
             with self.assertRaises(IngestError) as ctx:
                 ingest_pdf(path)
-            self.assertIn("DOCX", str(ctx.exception))
+            self.assertIn("不是 PDF", str(ctx.exception))
 
 
 if __name__ == "__main__":

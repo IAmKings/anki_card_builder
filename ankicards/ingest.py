@@ -1,9 +1,9 @@
-"""PDF 文本摄取：把「有文本层的 PDF」变成可寻址的逐页文本。
+"""文本摄取：PDF 逐页、DOCX 逐段/逐表格行，产出可寻址的 JSON 清单。
 
 首版范围（已与用户确认）：
-- 只支持文本型 PDF；扫描件（无文本层）明确拒绝，不做 OCR。
-- DOCX/MD/TXT 在命令层直接拒绝：DOCX 无“页”概念且表格/页眉抽取未实现；
-  MD/TXT 请走 `import --adapter`。
+- PDF：只支持文本型；扫描件/加密/损坏明确拒绝，不做 OCR。
+- DOCX：body 顺序的段落（para:N）与表格行（table:T/rR）；忽略页眉页脚/图片/批注。
+- MD/TXT 请走 `import --adapter`。
 - 输出固定写到 .work/ingest/（被 .gitignore 忽略），并带源文件 sha256。
 """
 
@@ -20,6 +20,8 @@ from .errors import CardError
 from .schema import load_json
 
 DEFAULT_MAX_PAGES = 2000
+DEFAULT_MAX_BLOCKS = 5000
+MAX_DOCX_BYTES = 20 * 1024 * 1024
 EMPTY_PAGE_RATIO_LIMIT = 0.2   # 超过即给 warning
 EMPTY_FAIL_RATIO = 0.5         # 达到即拒绝
 
@@ -52,18 +54,45 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _reject_unsupported(path: Path) -> None:
+def _require_pdf(path: Path) -> None:
     suffix = path.suffix.lower()
     if suffix == ".pdf":
         return
-    if suffix == ".docx":
-        raise IngestError(
-            "首版不支持 DOCX：Word 没有“页”概念，且表格/页眉抽取尚未实现。"
-            "请先在 Word/WPS 里导出为 PDF，再运行 ingest。")
-    if suffix in (".md", ".markdown", ".txt"):
-        raise IngestError(
-            f"{suffix} 不是 PDF；请用 `python3 -m ankicards import <目录> --adapter <名字>`。")
-    raise IngestError(f"不支持的文件类型: {suffix or '(无扩展名)'}")
+    raise IngestError(
+        f"{suffix or '(无扩展名)'} 不是 PDF；请用 `python3 -m ankicards ingest <文件>` "
+        "按格式分派，或 `import --adapter`。")
+
+
+def _import_docx():
+    try:
+        import docx  # type: ignore
+    except ImportError as exc:  # pragma: no cover - 依赖环境
+        raise IngestError("需要 python-docx：pip install -r requirements.txt") from exc
+    return docx
+
+
+def iter_docx_blocks(doc):
+    """按 body 顺序产出 (kind, locator, text)：段落 para:N，表格行 table:T/rR。"""
+    from docx.oxml.ns import qn
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    paragraph_index = 0
+    table_index = 0
+    for child in doc.element.body.iterchildren():
+        if child.tag == qn("w:p"):
+            paragraph_index += 1
+            yield "paragraph", f"para:{paragraph_index}", Paragraph(child, doc).text
+        elif child.tag == qn("w:tbl"):
+            table_index += 1
+            table = Table(child, doc)
+            for row_index, row in enumerate(table.rows, 1):
+                cells: list[str] = []
+                for cell in row.cells:
+                    value = cell.text.strip()
+                    if value and (not cells or cells[-1] != value):
+                        cells.append(value)
+                yield "table_row", f"table:{table_index}/r{row_index}", " | ".join(cells)
 
 
 def _default_out(path: Path, sha: str) -> Path:
@@ -91,7 +120,7 @@ def ingest_pdf(pdf_path: str | Path, out: str | Path | None = None,
         raise IngestError(f"找不到文件: {path}")
     if not path.is_file():
         raise IngestError(f"不是文件: {path}")
-    _reject_unsupported(path)
+    _require_pdf(path)
 
     try:
         import pymupdf  # type: ignore
@@ -177,6 +206,101 @@ def ingest_pdf(pdf_path: str | Path, out: str | Path | None = None,
     return IngestResult(manifest=manifest, out_path=out_path)
 
 
+def ingest_docx(docx_path: str | Path, out: str | Path | None = None,
+                max_blocks: int = DEFAULT_MAX_BLOCKS,
+                repo_root: Path | None = None) -> IngestResult:
+    """把 .docx 抽成 body 顺序的段落/表格行清单。"""
+    path = Path(docx_path).expanduser().resolve()
+    if not path.exists():
+        raise IngestError(f"找不到文件: {path}")
+    if not path.is_file():
+        raise IngestError(f"不是文件: {path}")
+    suffix = path.suffix.lower()
+    if suffix != ".docx":
+        raise IngestError(f"只支持 .docx；{suffix or '(无扩展名)'} 请先另存为 .docx")
+    if path.stat().st_size > MAX_DOCX_BYTES:
+        raise IngestError(
+            f"DOCX 超过 {MAX_DOCX_BYTES // (1024 * 1024)} MB 上限；请拆分文档。")
+
+    sha = file_sha256(path)
+    out_path = Path(out).expanduser() if out else _default_out(path, sha)
+    _check_out_path(out_path, repo_root)
+
+    docx = _import_docx()
+    try:
+        doc = docx.Document(str(path))
+    except Exception as exc:  # noqa: BLE001 - 损坏/加密的异常类型不稳定
+        raise IngestError(f"无法打开 DOCX（损坏或已加密）: {exc}") from exc
+
+    units = []
+    empty_units = []
+    for kind, locator, text in iter_docx_blocks(doc):
+        if len(units) >= max_blocks:
+            raise IngestError(
+                f"块数超过上限 {max_blocks}；请拆分文档或用 --max-blocks 放宽。")
+        if not text.strip():
+            empty_units.append(locator)
+        units.append({
+            "id": locator,
+            "locator": locator,
+            "kind": kind,
+            "chars": len(text.strip()),
+            "text": text,
+        })
+
+    total_chars = sum(unit["chars"] for unit in units)
+    empty_ratio = len(empty_units) / len(units) if units else 0.0
+    warnings: list[str] = []
+    if total_chars == 0:
+        raise IngestError(
+            "没有可提取文本：DOCX 里没有段落/表格文本（本工具不含 OCR/图片）。")
+    if empty_ratio >= EMPTY_FAIL_RATIO:
+        raise IngestError(
+            f"{len(empty_units)}/{len(units)} 块没有文本"
+            f"（≥{int(EMPTY_FAIL_RATIO * 100)}%），疑似空白页/图片文档。")
+    if empty_ratio >= EMPTY_PAGE_RATIO_LIMIT:
+        warnings.append(
+            f"{len(empty_units)}/{len(units)} 块没有文本"
+            f"（>{int(EMPTY_PAGE_RATIO_LIMIT * 100)}%）；引用这些块的卡片会被闸门拦下")
+
+    manifest = {
+        "format": "docx",
+        "source": path.name,
+        "source_sha256": sha,
+        "unit_kind": "block",
+        "unit_count": len(units),
+        "total_chars": total_chars,
+        "empty_units": empty_units,
+        "warnings": warnings,
+        "engine": f"python-docx {docx.__version__}",
+        "units": units,
+    }
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(manifest, ensure_ascii=False, indent=1, sort_keys=True) + "\n"
+    out_path.write_text(payload, encoding="utf-8")
+    return IngestResult(manifest=manifest, out_path=out_path)
+
+
+def ingest(source: str | Path, out: str | Path | None = None,
+           max_pages: int = DEFAULT_MAX_PAGES,
+           max_blocks: int = DEFAULT_MAX_BLOCKS,
+           allow_repaired: bool = False,
+           repo_root: Path | None = None) -> IngestResult:
+    """按扩展名分派：.pdf → ingest_pdf，.docx → ingest_docx。"""
+    path = Path(source).expanduser().resolve()
+    suffix = path.suffix.lower()
+    if suffix == ".pdf":
+        return ingest_pdf(path, out=out, max_pages=max_pages,
+                          allow_repaired=allow_repaired, repo_root=repo_root)
+    if suffix == ".docx":
+        return ingest_docx(path, out=out, max_blocks=max_blocks, repo_root=repo_root)
+    if suffix in (".doc", ".docm"):
+        raise IngestError(f"只支持 .docx；{suffix} 请先另存为 .docx")
+    if suffix in (".md", ".markdown", ".txt"):
+        raise IngestError(f"{suffix} 不是 PDF/DOCX；请用 `python3 -m ankicards import --adapter`。")
+    raise IngestError(f"不支持的文件类型: {suffix or '(无扩展名)'}")
+
+
 def load_ingest(path: str | Path) -> IngestData:
     """读 ingest 产物，返回页码文本与源文件 sha256，供溯源闸门使用。"""
     try:
@@ -203,15 +327,20 @@ def load_ingest(path: str | Path) -> IngestData:
 
 def main_cli(args) -> int:
     try:
-        result = ingest_pdf(args.source, out=args.out, max_pages=args.max_pages,
-                            allow_repaired=getattr(args, "allow_repaired", False))
+        result = ingest(args.source, out=args.out, max_pages=args.max_pages,
+                        max_blocks=getattr(args, "max_blocks", DEFAULT_MAX_BLOCKS),
+                        allow_repaired=getattr(args, "allow_repaired", False))
     except IngestError as exc:
         print(f"✗ {exc}", file=sys.stderr)
         return exc.code
     manifest = result.manifest
     print(f"已写入 {result.out_path}")
-    print(f"  {manifest['unit_count']} 页 / {manifest['total_chars']} 字 / "
-          f"空页 {len(manifest['empty_pages'])} / sha256 {manifest['source_sha256'][:12]}…")
+    if manifest["format"] == "docx":
+        print(f"  {manifest['unit_count']} 块 / {manifest['total_chars']} 字 / "
+              f"空块 {len(manifest['empty_units'])} / sha256 {manifest['source_sha256'][:12]}…")
+    else:
+        print(f"  {manifest['unit_count']} 页 / {manifest['total_chars']} 字 / "
+              f"空页 {len(manifest['empty_pages'])} / sha256 {manifest['source_sha256'][:12]}…")
     for warning in manifest.get("warnings", []):
         print(f"  ⚠ {warning}")
     return 0
