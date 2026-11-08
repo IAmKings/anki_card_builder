@@ -16,6 +16,8 @@ import zipfile
 from html.parser import HTMLParser
 from pathlib import Path
 
+from .errors import CardError
+
 VOID = {"br", "img", "hr", "input", "meta", "link", "col", "area", "base", "source", "wbr"}
 OPTIONAL_END = {"li", "p", "td", "th", "tr", "thead", "tbody", "option"}
 REQUIRED_NAMES = ("Front", "Back", "Text")
@@ -79,12 +81,26 @@ def check_html(text: str) -> list[str]:
     return checker.result()
 
 
+def _read_json(path: Path, what: str):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise CardError(f"apkg 的 {what} 损坏: {exc}") from exc
+
+
+def _parse_json(raw: str, what: str):
+    try:
+        return json.loads(raw)
+    except ValueError as exc:
+        raise CardError(f"apkg 的 {what} 字段损坏: {exc}") from exc
+
+
 def _open_collection(root: Path) -> sqlite3.Connection:
     for name in ("collection.anki21", "collection.anki2", "collection.anki21b"):
         path = root / name
         if path.exists():
             return sqlite3.connect(str(path))
-    raise SystemExit(f"apkg 里找不到 collection 数据库: {sorted(p.name for p in root.iterdir())}")
+    raise CardError(f"apkg 里找不到 collection 数据库: {sorted(p.name for p in root.iterdir())}")
 
 
 def verify(apkg: str | Path) -> dict:
@@ -101,16 +117,16 @@ def verify(apkg: str | Path) -> dict:
             archive.extractall(root)
 
         media_path = root / "media"
-        media = json.loads(media_path.read_text(encoding="utf-8")) if media_path.exists() else {}
+        media = _read_json(media_path, "media 索引") if media_path.exists() else {}
         media_names = set(media.values())
 
         con = _open_collection(root)
         con.text_factory = str
         cur = con.cursor()
         models_raw, decks_raw, conf_raw = cur.execute("select models,decks,conf from col").fetchone()
-        models = {str(k): v for k, v in json.loads(models_raw).items()}
-        decks = {int(k): v for k, v in json.loads(decks_raw).items()}
-        conf = json.loads(conf_raw)
+        models = {str(k): v for k, v in _parse_json(models_raw, "models").items()}
+        decks = {int(k): v for k, v in _parse_json(decks_raw, "decks").items()}
+        conf = _parse_json(conf_raw, "conf")
         fields = {mid: [f["name"] for f in m["flds"]] for mid, m in models.items()}
         templates = {mid: m["tmpls"] for mid, m in models.items()}
 

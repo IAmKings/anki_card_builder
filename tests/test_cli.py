@@ -110,6 +110,20 @@ class CliNoPymupdfTest(unittest.TestCase):
             self.assertIn("--force", stderr.getvalue())
 
 
+class CliMqttErrorTest(unittest.TestCase):
+    def test_mqtt_no_points_is_exit_2(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            src.mkdir()
+            (src / "a.md").write_text("这里没有任何编号知识点", encoding="utf-8")
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                code = main(["import", str(src), "--adapter", "mqtt-md",
+                             "--out", str(Path(tmp) / "deck")])
+            self.assertEqual(code, 2)
+            self.assertNotIn("Traceback", stderr.getvalue())
+
+
 class GateCliTest(unittest.TestCase):
     def _prepare(self, tmp: Path):
         pdf = tmp / "a.pdf"

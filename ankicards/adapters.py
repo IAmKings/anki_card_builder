@@ -180,7 +180,7 @@ def from_mqtt_md(source: Path, name: str = "MQTT协议") -> DeckData:
     for path in files:
         points.extend(_parse_points(path))
     if not points:
-        raise SystemExit(f"{source} 里没有解析出知识点（格式需形如 `1. **关键词**：解释`）")
+        raise CardError(f"{source} 里没有解析出知识点（格式需形如 `1. **关键词**：解释`）")
 
     deck = DeckData(name=name, source_kind="md")
     for index, point in enumerate(points):

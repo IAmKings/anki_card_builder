@@ -138,7 +138,10 @@ def _render(pdf_path: str, pages: set[int], crops: dict[str, dict], media_dir: P
 
 def build(spec: DeckSpec, out_path: str | Path, pdf: str | None = None, lite: bool = False,
           page_dpi: int = 170, crop_dpi: int = 300, quality: int = 80) -> dict:
-    import genanki  # 延迟导入：--check 不需要它
+    try:
+        import genanki  # 延迟导入：--check 不需要它
+    except ImportError as exc:
+        raise CardError("需要 genanki 才能构建 apkg：pip install -r requirements.txt") from exc
 
     slug = deck_slug(spec.name)
     pages: set[int] = {p for _, _, card in spec.iter_cards()
@@ -224,8 +227,13 @@ def build(spec: DeckSpec, out_path: str | Path, pdf: str | None = None, lite: bo
         if media:
             package.media_files = sorted(str(media_dir / m) for m in media)
         out_path = Path(out_path)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        package.write_to_file(str(out_path))
+        if out_path.exists() and out_path.is_dir():
+            raise CardError(f"--out 是目录，请给 .apkg 文件路径: {out_path}")
+        try:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            package.write_to_file(str(out_path))
+        except OSError as exc:
+            raise CardError(f"写入 {out_path} 失败: {exc}") from exc
         stats["media"] = len(media)
         stats["bytes"] = out_path.stat().st_size
         stats["path"] = str(out_path)
