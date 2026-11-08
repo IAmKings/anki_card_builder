@@ -57,6 +57,27 @@ class DocxPointsAdapterTest(unittest.TestCase):
         self.assertEqual(cards[2]["a"], "说明甲")
         self.assertTrue(all(c["type"] == "qa" for c in cards))
 
+    def test_table_duplicate_cells_collapsed(self):
+        path = self.tmp / "dup.docx"
+        doc = docx.Document()
+        doc.add_heading("表格", level=1)
+        table = doc.add_table(rows=2, cols=3)
+        for r, row in enumerate([["甲", "甲", "乙"], ["丙", "", "丁"]]):
+            for c, value in enumerate(row):
+                table.cell(r, c).text = value
+        doc.save(str(path))
+
+        deck = ADAPTERS["docx-points"](path)
+        cards = deck.sections["表格"]
+        self.assertEqual([c["source"] for c in cards], ["table:1/r1", "table:1/r2"])
+        self.assertEqual((cards[0]["q"], cards[0]["a"]), ("甲", "乙"))
+        self.assertEqual((cards[1]["q"], cards[1]["a"]), ("丙", "丁"))
+
+        result = ingest_mod.ingest_docx(path, out=self.tmp / "dup.json",
+                                        repo_root=self.tmp)
+        data = ingest_mod.load_ingest(result.out_path)
+        self.assertTrue(all(c["source"] in data.locators for c in cards))
+
     def test_sources_match_ingest_locators(self):
         result = ingest_mod.ingest_docx(self.path, out=self.tmp / "ing.json",
                                         repo_root=self.tmp)

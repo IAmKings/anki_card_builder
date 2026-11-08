@@ -17,6 +17,7 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .docx import iter_docx_blocks
 from .errors import CardError
 from .schema import load_json
 
@@ -88,30 +89,6 @@ def _check_docx_zip(path: Path) -> None:
         raise IngestError(
             f"DOCX 解压后约 {total // (1024 * 1024)} MB，超过 "
             f"{MAX_DOCX_UNCOMPRESSED_BYTES // (1024 * 1024)} MB 上限；请拆分文档。")
-
-
-def iter_docx_blocks(doc):
-    """按 body 顺序产出 (kind, locator, text)：段落 para:N，表格行 table:T/rR。"""
-    from docx.oxml.ns import qn
-    from docx.table import Table
-    from docx.text.paragraph import Paragraph
-
-    paragraph_index = 0
-    table_index = 0
-    for child in doc.element.body.iterchildren():
-        if child.tag == qn("w:p"):
-            paragraph_index += 1
-            yield "paragraph", f"para:{paragraph_index}", Paragraph(child, doc).text
-        elif child.tag == qn("w:tbl"):
-            table_index += 1
-            table = Table(child, doc)
-            for row_index, row in enumerate(table.rows, 1):
-                cells: list[str] = []
-                for cell in row.cells:
-                    value = cell.text.strip()
-                    if value and (not cells or cells[-1] != value):
-                        cells.append(value)
-                yield "table_row", f"table:{table_index}/r{row_index}", " | ".join(cells)
 
 
 def _default_out(path: Path, sha: str) -> Path:
@@ -254,18 +231,18 @@ def ingest_docx(docx_path: str | Path, out: str | Path | None = None,
 
     units = []
     empty_units = []
-    for kind, locator, text in iter_docx_blocks(doc):
+    for block in iter_docx_blocks(doc):
         if len(units) >= max_blocks:
             raise IngestError(
                 f"块数超过上限 {max_blocks}；请拆分文档或用 --max-blocks 放宽。")
-        if not text.strip():
-            empty_units.append(locator)
+        if not block.text.strip():
+            empty_units.append(block.locator)
         units.append({
-            "id": locator,
-            "locator": locator,
-            "kind": kind,
-            "chars": len(text.strip()),
-            "text": text,
+            "id": block.locator,
+            "locator": block.locator,
+            "kind": block.kind,
+            "chars": len(block.text.strip()),
+            "text": block.text,
         })
 
     total_chars = sum(unit["chars"] for unit in units)

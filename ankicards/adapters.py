@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .docx import iter_docx_blocks
 from .errors import CardError
 
 ADAPTERS: dict[str, object] = {}
@@ -235,24 +236,15 @@ def from_docx_points(source: Path, name: str = "DOCX知识点") -> DeckData:
     except Exception as exc:  # noqa: BLE001 - 损坏/加密的异常类型不稳定
         raise CardError(f"无法打开 DOCX（损坏或已加密）: {exc}") from exc
 
-    from docx.oxml.ns import qn
-    from docx.table import Table
-    from docx.text.paragraph import Paragraph
-
     deck = DeckData(name=name, source_kind="docx")
     section = ""
     card_count = 0
-    paragraph_index = 0
-    table_index = 0
-    for child in document.element.body.iterchildren():
-        if child.tag == qn("w:p"):
-            paragraph_index += 1
-            paragraph = Paragraph(child, document)
-            text = paragraph.text.strip()
+    for block in iter_docx_blocks(document):
+        if block.kind == "paragraph":
+            text = block.text.strip()
             if not text:
                 continue
-            style = (paragraph.style.name if paragraph.style is not None else "") or ""
-            if style.lower().startswith("heading") or style.startswith("标题"):
+            if block.style.lower().startswith("heading") or block.style.startswith("标题"):
                 section = _docx_heading(text)
                 continue
             point = _docx_point(text)
@@ -263,27 +255,24 @@ def from_docx_points(source: Path, name: str = "DOCX知识点") -> DeckData:
                 "type": "qa",
                 "q": _front(keyword),
                 "a": explanation,
-                "source": f"para:{paragraph_index}",
+                "source": block.locator,
                 "tags": ["source:docx", "type:qa"],
             })
             card_count += 1
-        elif child.tag == qn("w:tbl"):
-            table_index += 1
-            table = Table(child, document)
-            for row_index, row in enumerate(table.rows, 1):
-                cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
-                if len(cells) < 2:
-                    continue
-                if row_index == 1 and cells[1] in _DOCX_TABLE_HEADERS:
-                    continue
-                deck.add(section, {
-                    "type": "qa",
-                    "q": cells[0],
-                    "a": " | ".join(cells[1:]),
-                    "source": f"table:{table_index}/r{row_index}",
-                    "tags": ["source:docx", "type:qa"],
-                })
-                card_count += 1
+        elif block.kind == "table_row":
+            cells = block.cells
+            if len(cells) < 2:
+                continue
+            if block.row_index == 1 and cells[1] in _DOCX_TABLE_HEADERS:
+                continue
+            deck.add(section, {
+                "type": "qa",
+                "q": cells[0],
+                "a": " | ".join(cells[1:]),
+                "source": block.locator,
+                "tags": ["source:docx", "type:qa"],
+            })
+            card_count += 1
 
     if card_count == 0:
         raise CardError(
