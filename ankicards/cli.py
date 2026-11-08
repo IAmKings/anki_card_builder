@@ -19,7 +19,7 @@ import zipfile
 from pathlib import Path
 
 from .build import build
-from .errors import CardError
+from .errors import CardError, GateError
 from .ingest import DEFAULT_MAX_PAGES, load_ingest, main_cli as ingest_cli
 from .preview import build_preview
 from .schema import SOURCE_KINDS, DeckSpec, load_spec, validate
@@ -66,24 +66,28 @@ def _print_report(report) -> None:
         print(f"  ✗ {error}")
 
 
-def _validated(args, *, gate: bool = True):
-    """check/build/preview 共用的校验链：PDF 预检 → ingest → 闸门 → validate。
+def _validated(args):
+    """check/build/preview 共用的校验链：PDF 预检 → ingest → validate。
 
-    gate=True 时，含 pages 的牌组没有 ingest 直接抛 CardError(code=1)（闸门失败）。
+    只返回 (spec, report, ingest)，不在这里拦闸门——先让调用方打印报告，
+    数据错误优先于闸门（避免 pages:"5" 被“请先 ingest”掩盖）。
     """
     spec = _load_spec(args)
     crop_pages = {c.get("page") for c in spec.crops.values() if isinstance(c.get("page"), int)}
     page_count, page_sizes = _pdf_info(args.pdf, crop_pages)
     ingest = _ingest_pages(args)
-    if gate and spec.has_pages and ingest is None:
-        raise CardError(
-            "该牌组引用 PDF 页码，请先 ingest 并传 --ingest（交付前必须过溯源闸门）", code=1)
     report = validate(spec, page_count=page_count, page_sizes=page_sizes, ingest=ingest)
-    return spec, report
+    return spec, report, ingest
+
+
+def _require_gate(spec: DeckSpec, ingest) -> None:
+    """含 pages 的牌组构建/预览前必须过溯源闸门；在报告打印之后调用。"""
+    if spec.has_pages and ingest is None:
+        raise GateError("该牌组引用 PDF 页码，请先 ingest 并传 --ingest（交付前必须过溯源闸门）")
 
 
 def cmd_check(args) -> int:
-    spec, report = _validated(args, gate=False)
+    spec, report, _ingest = _validated(args)
     print(f"牌组 {spec.name}：{len(spec.sections)} 个子牌组 / {spec.card_count} 张卡片")
     _print_report(report)
     print("校验通过" if report.ok else f"校验失败：{len(report.errors)} 个错误")
@@ -91,11 +95,12 @@ def cmd_check(args) -> int:
 
 
 def cmd_build(args) -> int:
-    spec, report = _validated(args)
+    spec, report, ingest = _validated(args)
     _print_report(report)
     if not report.ok:
         print("构建中止：先修数据")
         return 1
+    _require_gate(spec, ingest)
     stats = build(spec, args.out, pdf=args.pdf, lite=args.lite)
     print(json.dumps(stats, ensure_ascii=False, indent=1))
     if args.preview:
@@ -136,11 +141,12 @@ def cmd_ingest(args) -> int:
 
 
 def cmd_preview(args) -> int:
-    spec, report = _validated(args)
+    spec, report, ingest = _validated(args)
     _print_report(report)
     if not report.ok:
         print("预览中止：先修数据")
         return 1
+    _require_gate(spec, ingest)
     preview = build_preview(spec, args.out, pdf=args.pdf)
     print(f"预览：{preview}（{preview.stat().st_size / 1048576:.1f} MB，"
           f"{spec.card_count} 张卡片）")
