@@ -123,13 +123,13 @@ python3 -m ankicards verify output/xxx.apkg
 | 码 | 含义 | 典型场景 |
 |---|---|---|
 | `0` | 成功 | — |
-| `1` | 数据/闸门失败 | schema 校验不通过、含 pages 却未给 `--ingest`、verify 结构错误 |
+| `1` | 数据/闸门失败 | schema 校验不通过、含 pages/DOCX 定位却未给 `--ingest`、verify 结构错误 |
 | `2` | 用法或环境错误 | 缺必填参数、源目录为空、拒绝覆盖、坏 JSON、PDF 不可读/加密、缺 `--pdf` 却有图片题、apkg 不是 zip |
 
 坏 JSON、加密 PDF、缺 `--pdf` 这类问题会以可读文案 + exit 2 结束，不再抛 traceback。
 
-构建与预览对**含 pages 的牌组强制要求 `--ingest`**：没有 ingest 产物就无法证明页码真实存在，宁可拒绝也不产出假溯源。
-同时给 `--pdf` 与 `--ingest` 时会比对 `source_sha256`；不是同一份文件直接 exit 2。
+构建与预览对**含 pages 或 DOCX 定位的牌组强制要求 `--ingest`**：没有 ingest 产物就无法证明页码/段落真实存在，宁可拒绝也不产出假溯源。
+同时给 `--pdf`/`--docx` 与 `--ingest` 时会比对 `source_sha256`；不是同一份文件直接 exit 2。
 
 **首版格式支持矩阵**（明确的能力边界，避免“看起来支持”）：
 
@@ -138,12 +138,12 @@ python3 -m ankicards verify output/xxx.apkg
 | 文本型 PDF | ✅ `ingest` | 逐页文本 + 页码引用；加密/损坏/扫描件直接 exit 2 |
 | MD 题库 | ✅ `import --adapter android-md / mqtt-md` | 结构化问答格式 |
 | 卡片 JSON | ✅ `check/build/verify` | 手工/agent 提炼后的事实来源 |
-| DOCX | ❌ 明确拒绝 | Word 无“页”概念，表格/页眉抽取未实现；请先转 PDF |
+| DOCX | ✅ `ingest` + `import --adapter docx-points` | 逐段落/表格行文本 + `para:N`/`table:T/rR` 定位；忽略页眉页脚/图片/批注 |
 | 扫描版 PDF | ❌ 明确拒绝 | 无文本层；本工具不含 OCR；空页 ≥50% 时 ingest 直接拒绝 |
 | 可修复的损坏 PDF | ⚠️ 默认拒绝 | `--allow-repaired` 显式放行；文本可能缺失 |
 | TXT | ⏸ 未注册适配器 | 缺“答案从哪来”的确定性来源，暂不做 |
 
-依赖：`requirements.txt`（genanki，必需）；`requirements-render.txt`（PyMuPDF，仅渲染 PDF 页面/裁图/带图预览时需要）。
+依赖：`requirements.txt`（genanki + python-docx，必需）；`requirements-render.txt`（PyMuPDF，仅渲染 PDF 页面/裁图/带图预览时需要）。
 
 牌组目录的契约：
 
@@ -159,7 +159,7 @@ python3 -m ankicards verify output/xxx.apkg
 
 定位语义（**唯一真值**）：
 - `pages` 只表示 **PDF 页码**，用于背面截图与裁图；`source_kind` 为 `md/txt/docx/image` 时写 `pages` 会报错；未声明（`unknown`）时兼容放行，但整副牌组只给 1 条 warning。
-- `source` 用于非 PDF 来源的溯源（文件名 > 章节 > 段落 id），MD/TXT/DOCX 一律用它。
+- `source` 用于非 PDF 来源的溯源；`source_kind=docx` 时必须是 `para:N`（body 内第 N 个段落，空段落也计数）或 `table:T/rR`（第 T 个表格第 R 行），且能在 ingest 产物中找到、文本非空。MD/TXT 仍用自由文本。
 - 两者可以并存：`pages` 出截图，`source` 给段落级定位。
 - 卡片字段是**白名单**，未知字段直接报错，避免“校验通过但构建不消费”的假溯源。
 
@@ -175,7 +175,7 @@ python3 -m ankicards verify output/xxx.apkg
 |---|---|---|
 | `data/Android/` | 公开面试题库（MD） | ✅ 可入库，供他人复现构建 |
 | `data/江斯丹顿/` | 品牌内部培训手册（PDF + cards + crops） | ❌ 机密，已被 .gitignore 排除，仅本机构建 |
-| `.work/ingest/` | PDF 逐页文本产物 | ❌ 被 gitignore；含全文，不得入库 |
+| `.work/ingest/` | PDF 逐页 / DOCX 逐段文本产物 | ❌ 被 gitignore；含全文，不得入库 |
 | `output/*.apkg` | 构建产物 | 视内容而定；含内部页截图的不要入库 |
 
 ### 适配器（原始资料 → cards/*.json）
@@ -186,12 +186,18 @@ python3 -m ankicards verify output/xxx.apkg
 python3 -m ankicards import --list
 python3 -m ankicards import data/Android --adapter android-md --out /tmp/android-deck --name "Android面试"
 python3 -m ankicards build  /tmp/android-deck --out output/Android面试卡组.apkg
+
+# DOCX：先摄取定位，再用 docx-points 生成卡片，最后带同源校验过闸门
+python3 -m ankicards ingest 笔记.docx
+python3 -m ankicards import 笔记.docx --adapter docx-points --out /tmp/docx-deck
+python3 -m ankicards check  /tmp/docx-deck --docx 笔记.docx --ingest .work/ingest/笔记-<sha8>.json
 ```
 
 | 适配器 | 输入 | 说明 |
 |------|------|------|
 | `android-md` | MD 题库目录 | 复用 `src/parsers` + 质量过滤 + 去重；实测重建 1270 张、5 个子牌组，与已入库卡组一致 |
 | `mqtt-md` | MQTT 知识点 MD | 每个知识点生成一问一答 + 一道四选一；**源数据 `data3_mqtt/` 当前不在仓库，需要自备** |
+| `docx-points` | 单个 DOCX | 标题→子牌组；`1. **关键词**：解释` 段落、至少两列的表格行→问答；`source` 写 `para:N`/`table:T/rR` |
 
 新增一种格式 = 在 `ankicards/adapters.py` 里加一个带 `@register("名字")` 的函数，
 产出 `DeckData`（含 `source_kind`），不需要再复制打包逻辑。`import` 会把

@@ -196,6 +196,103 @@ def from_mqtt_md(source: Path, name: str = "MQTT协议") -> DeckData:
 
 
 # ---------------------------------------------------------------------------
+# DOCX：标题分段 + “编号点/表格行”两类知识点
+# ---------------------------------------------------------------------------
+
+_DOCX_ITEM_BOLD = re.compile(r"^\d+[.、]\s*\*\*(.+?)\*\*\s*[：:]\s*(.+)$")
+_DOCX_ITEM_PLAIN = re.compile(r"^\d+[.、]\s*(.+?)\s*[：:]\s*(.+)$")
+_DOCX_TABLE_HEADERS = {"解释", "说明", "定义", "含义", "描述", "内容"}
+
+
+def _docx_heading(text: str) -> str:
+    """去掉标题前面的“一、”“1.”等编号，留作子牌组名。"""
+    return re.sub(r"^[一二三四五六七八九十百0-9]+[、.．]\s*", "", text).strip() or text
+
+
+def _docx_point(text: str):
+    for pattern in (_DOCX_ITEM_BOLD, _DOCX_ITEM_PLAIN):
+        match = pattern.match(text)
+        if match:
+            return match.group(1).strip(), match.group(2).strip()
+    return None
+
+
+@register("docx-points")
+def from_docx_points(source: Path, name: str = "DOCX知识点") -> DeckData:
+    """DOCX 知识点：标题 → 子牌组，编号段落/表格行 → 问答，source 用 para/table 定位。"""
+    source = Path(source)
+    if source.is_dir():
+        raise CardError("docx-points 只接受单个 .docx；请传文件路径")
+    if source.suffix.lower() != ".docx":
+        raise CardError(f"docx-points 只支持 .docx，实际为 {source.suffix or '(无扩展名)'}")
+
+    try:
+        import docx  # type: ignore
+    except ImportError as exc:  # pragma: no cover - 依赖环境
+        raise CardError("需要 python-docx：pip install -r requirements.txt") from exc
+    try:
+        document = docx.Document(str(source))
+    except Exception as exc:  # noqa: BLE001 - 损坏/加密的异常类型不稳定
+        raise CardError(f"无法打开 DOCX（损坏或已加密）: {exc}") from exc
+
+    from docx.oxml.ns import qn
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    deck = DeckData(name=name, source_kind="docx")
+    section = ""
+    card_count = 0
+    paragraph_index = 0
+    table_index = 0
+    for child in document.element.body.iterchildren():
+        if child.tag == qn("w:p"):
+            paragraph_index += 1
+            paragraph = Paragraph(child, document)
+            text = paragraph.text.strip()
+            if not text:
+                continue
+            style = (paragraph.style.name if paragraph.style is not None else "") or ""
+            if style.lower().startswith("heading") or style.startswith("标题"):
+                section = _docx_heading(text)
+                continue
+            point = _docx_point(text)
+            if point is None:
+                continue
+            keyword, explanation = point
+            deck.add(section, {
+                "type": "qa",
+                "q": _front(keyword),
+                "a": explanation,
+                "source": f"para:{paragraph_index}",
+                "tags": ["source:docx", "type:qa"],
+            })
+            card_count += 1
+        elif child.tag == qn("w:tbl"):
+            table_index += 1
+            table = Table(child, document)
+            for row_index, row in enumerate(table.rows, 1):
+                cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                if len(cells) < 2:
+                    continue
+                if row_index == 1 and cells[1] in _DOCX_TABLE_HEADERS:
+                    continue
+                deck.add(section, {
+                    "type": "qa",
+                    "q": cells[0],
+                    "a": " | ".join(cells[1:]),
+                    "source": f"table:{table_index}/r{row_index}",
+                    "tags": ["source:docx", "type:qa"],
+                })
+                card_count += 1
+
+    if card_count == 0:
+        raise CardError(
+            "没有解析出编号点或表格行；段落需形如 `1. **关键词**：解释`，"
+            "或使用至少两列的表格")
+    return deck
+
+
+# ---------------------------------------------------------------------------
 
 
 def write_deck(deck: DeckData, out_dir: str | Path, force: bool = False) -> Path:
