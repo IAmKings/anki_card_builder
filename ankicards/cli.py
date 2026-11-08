@@ -54,6 +54,17 @@ def _pdf_info(pdf: str | None, pages: set[int] | None = None):
         doc.close()
 
 
+def _docx_info(docx: str | None) -> None:
+    """--docx 的源文件预检；路径不存在、是目录或不可读都算用法错误（exit 2）。"""
+    if not docx:
+        return
+    path = Path(docx)
+    if not path.exists():
+        raise CardError(f"找不到 DOCX: {path}")
+    if not path.is_file():
+        raise CardError(f"不是文件: {path}")
+
+
 def _ingest_pages(args):
     if not getattr(args, "ingest", None):
         return None
@@ -78,6 +89,7 @@ def _validated(args):
     docx = getattr(args, "docx", None)
     if pdf and docx:
         raise CardError("--pdf 与 --docx 只能给一个")
+    _docx_info(docx)
     crop_pages = {c.get("page") for c in spec.crops.values() if isinstance(c.get("page"), int)}
     page_count, page_sizes = _pdf_info(pdf, crop_pages)
     ingest = _ingest_pages(args)
@@ -85,7 +97,11 @@ def _validated(args):
         if ingest.format != "docx":
             raise CardError("--docx 需要 DOCX 的 ingest 产物")
         if ingest.source_sha256:
-            if file_sha256(Path(docx)) != ingest.source_sha256:
+            try:
+                actual = file_sha256(Path(docx))
+            except OSError as exc:
+                raise CardError(f"无法读取 DOCX {docx}: {exc}") from exc
+            if actual != ingest.source_sha256:
                 raise CardError("--ingest 与 --docx 不是同一份文件（sha256 不一致）")
         else:
             print("  ⚠ ingest 缺少 source_sha256，跳过同源校验", file=sys.stderr)

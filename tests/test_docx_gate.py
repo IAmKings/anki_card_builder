@@ -144,6 +144,23 @@ class DocxGateTest(unittest.TestCase):
         self.assertEqual(code, 2, text)
         self.assertIn("不是同一份文件", text)
 
+    def test_missing_docx_path_reports_exit_2(self):
+        _path, _data, out = self._ingest()
+        deck = make_deck(self.tmp / "deck", [qa("para:1")])
+        missing = self.tmp / "nope.docx"
+        code, text = run(["check", str(deck), "--docx", str(missing), "--ingest", str(out)])
+        self.assertEqual(code, 2, text)
+        self.assertIn("找不到 DOCX", text)
+        self.assertNotIn("Traceback", text)
+
+    def test_docx_path_is_directory_reports_exit_2(self):
+        _path, _data, out = self._ingest()
+        deck = make_deck(self.tmp / "deck", [qa("para:1")])
+        code, text = run(["check", str(deck), "--docx", str(self.tmp), "--ingest", str(out)])
+        self.assertEqual(code, 2, text)
+        self.assertIn("不是文件", text)
+        self.assertNotIn("Traceback", text)
+
     def test_build_gate_requires_ingest(self):
         _path, _data, _out = self._ingest()
         deck = make_deck(self.tmp / "deck", [qa("para:1")])
