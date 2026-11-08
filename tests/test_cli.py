@@ -82,8 +82,7 @@ class CliUsageErrorTest(unittest.TestCase):
         self.assertNotIn("Traceback", stderr.getvalue())
 
 
-@unittest.skipUnless(HAS_PYMUPDF, "需要 PyMuPDF")
-class CliNoPymupdfTest(unittest.TestCase):
+class CliExitCodeTest(unittest.TestCase):
     def test_empty_source_is_exit_2(self):
         with tempfile.TemporaryDirectory() as tmp:
             empty = Path(tmp) / "empty"
@@ -124,6 +123,7 @@ class CliMqttErrorTest(unittest.TestCase):
             self.assertNotIn("Traceback", stderr.getvalue())
 
 
+@unittest.skipUnless(HAS_PYMUPDF, "需要 PyMuPDF")
 class GateCliTest(unittest.TestCase):
     def _prepare(self, tmp: Path):
         pdf = tmp / "a.pdf"
