@@ -74,24 +74,40 @@ def _validated(args):
     数据错误优先于闸门（避免 pages:"5" 被“请先 ingest”掩盖）。
     """
     spec = _load_spec(args)
+    pdf = getattr(args, "pdf", None)
+    docx = getattr(args, "docx", None)
+    if pdf and docx:
+        raise CardError("--pdf 与 --docx 只能给一个")
     crop_pages = {c.get("page") for c in spec.crops.values() if isinstance(c.get("page"), int)}
-    page_count, page_sizes = _pdf_info(args.pdf, crop_pages)
+    page_count, page_sizes = _pdf_info(pdf, crop_pages)
     ingest = _ingest_pages(args)
-    if ingest and args.pdf:
+    if ingest and docx:
+        if ingest.format != "docx":
+            raise CardError("--docx 需要 DOCX 的 ingest 产物")
         if ingest.source_sha256:
-            if file_sha256(Path(args.pdf)) != ingest.source_sha256:
+            if file_sha256(Path(docx)) != ingest.source_sha256:
+                raise CardError("--ingest 与 --docx 不是同一份文件（sha256 不一致）")
+        else:
+            print("  ⚠ ingest 缺少 source_sha256，跳过同源校验", file=sys.stderr)
+    elif ingest and pdf:
+        if ingest.format != "pdf":
+            raise CardError("--pdf 需要 PDF 的 ingest 产物")
+        if ingest.source_sha256:
+            if file_sha256(Path(pdf)) != ingest.source_sha256:
                 raise CardError("--ingest 与 --pdf 不是同一份文件（sha256 不一致）")
         else:
             print("  ⚠ ingest 缺少 source_sha256，跳过同源校验", file=sys.stderr)
     report = validate(spec, page_count=page_count, page_sizes=page_sizes,
-                      ingest=ingest.pages if ingest else None)
+                      ingest=ingest.pages if ingest else None,
+                      locators=ingest.locators if ingest else None)
     return spec, report, ingest
 
 
 def _require_gate(spec: DeckSpec, ingest) -> None:
-    """含 pages 的牌组构建/预览前必须过溯源闸门；在报告打印之后调用。"""
-    if spec.has_pages and ingest is None:
-        raise GateError("该牌组引用 PDF 页码，请先 ingest 并传 --ingest（交付前必须过溯源闸门）")
+    """含 pages 或 DOCX 定位的牌组构建/预览前必须过溯源闸门；在报告打印之后调用。"""
+    if (spec.has_pages or spec.source_kind == "docx") and ingest is None:
+        raise GateError(
+            "该牌组引用 PDF 页码或 DOCX 定位，请先 ingest 并传 --ingest（交付前必须过溯源闸门）")
 
 
 def cmd_check(args) -> int:
@@ -189,7 +205,8 @@ def main(argv: list[str] | None = None) -> int:
     p_check = sub.add_parser("check", help="只校验卡片数据（不需要 genanki）")
     p_check.add_argument("deck", help="牌组目录（含 cards/*.json）")
     p_check.add_argument("--pdf", help="源 PDF，用于页码上界与裁图越界检查")
-    p_check.add_argument("--ingest", help="ingest 产物 JSON；启用溯源闸门（页码必须存在且有文本）")
+    p_check.add_argument("--docx", help="源 DOCX，用于与 ingest 的同源校验")
+    p_check.add_argument("--ingest", help="ingest 产物 JSON；启用溯源闸门（页码/定位必须存在且有文本）")
     p_check.add_argument("--name", help="覆盖顶层牌组名")
     p_check.set_defaults(func=cmd_check)
 
@@ -197,7 +214,8 @@ def main(argv: list[str] | None = None) -> int:
     p_build.add_argument("deck")
     p_build.add_argument("--out", required=True, help="输出 .apkg 路径")
     p_build.add_argument("--pdf", help="源 PDF；有图片题时必须提供")
-    p_build.add_argument("--ingest", help="ingest 产物；引用 PDF 页码的牌组必须提供")
+    p_build.add_argument("--docx", help="源 DOCX；与 --ingest 做同源校验")
+    p_build.add_argument("--ingest", help="ingest 产物；引用 PDF 页码/DOCX 定位的牌组必须提供")
     p_build.add_argument("--lite", action="store_true", help="不生成原文页截图")
     p_build.add_argument("--name", help="覆盖顶层牌组名")
     p_build.add_argument("--preview", help="同时输出单文件 HTML 预览")
@@ -229,7 +247,8 @@ def main(argv: list[str] | None = None) -> int:
     p_preview.add_argument("deck")
     p_preview.add_argument("--out", required=True, help="输出 .html 路径")
     p_preview.add_argument("--pdf", help="源 PDF（决定能否显示原文截图与裁图）")
-    p_preview.add_argument("--ingest", help="ingest 产物；引用 PDF 页码的牌组必须提供")
+    p_preview.add_argument("--docx", help="源 DOCX；与 --ingest 做同源校验")
+    p_preview.add_argument("--ingest", help="ingest 产物；引用 PDF 页码/DOCX 定位的牌组必须提供")
     p_preview.add_argument("--name", help="覆盖顶层牌组名")
     p_preview.set_defaults(func=cmd_preview)
 

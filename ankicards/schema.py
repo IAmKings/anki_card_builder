@@ -39,6 +39,8 @@ SOURCE_KINDS = {"pdf", "docx", "md", "txt", "image", "unknown"}
 # pages 只表示 PDF 页码；unknown 为兼容未声明 source_kind 的历史牌组而放行（仅 warning）。
 PAGES_ALLOWED = {"pdf", "unknown"}
 CARD_FIELDS = {"type", "q", "a", "text", "extra", "pages", "source", "tags", "img"}
+# DOCX 的 source 定位：body 内第 N 段，或第 T 个表格的第 R 行。
+DOCX_LOCATOR_RE = re.compile(r"^(?:para:[1-9]\d*|table:[1-9]\d*/r[1-9]\d*)$")
 
 
 
@@ -183,13 +185,16 @@ def identity_seed(deck_name: str, card: dict) -> str:
 
 def validate(spec: DeckSpec, page_count: int | None = None,
              page_sizes: dict[int, tuple[float, float]] | None = None,
-             ingest: dict[int, str] | None = None) -> Report:
+             ingest: dict[int, str] | None = None,
+             locators: dict[str, str] | None = None) -> Report:
     """校验卡片契约。
 
     page_count / page_sizes：能拿到源 PDF 时才传；page_sizes 是按页的真实尺寸，
     用于按“被裁的那一页”判断裁图是否越界（不同页尺寸可以不同）。
     ingest：ingest 产物（page -> 文本）。传入时启用**溯源闸门**：
             卡片引用的每一页都必须存在且该页文本非空。
+    locators：DOCX ingest 产物（para:N / table:T/rR -> 文本）。传入时启用
+            **DOCX 定位闸门**：source 必须存在且文本非空。
     """
     rep = Report()
     seen_sections: dict[str, str] = {}
@@ -267,6 +272,18 @@ def validate(spec: DeckSpec, page_count: int | None = None,
                                 rep.add_error(where, f"页码 {p} 不在 ingest 产物中")
                             elif p in pages_without_text:
                                 rep.add_error(where, f"页码 {p} 在 ingest 产物中没有文本（可能是空页）")
+
+            if kind == "docx":
+                if not source:
+                    rep.add_error(where, "source_kind=docx 时 source 必填（para:N 或 table:T/rR）")
+                elif not DOCX_LOCATOR_RE.fullmatch(source):
+                    rep.add_error(
+                        where, f"DOCX 定位格式非法: {source!r}（应为 para:N 或 table:T/rR）")
+                elif locators is not None:
+                    if source not in locators:
+                        rep.add_error(where, f"定位 {source} 不在 ingest 产物中")
+                    elif not (locators[source] or "").strip():
+                        rep.add_error(where, f"定位 {source} 在 ingest 产物中没有文本（可能是空段落/空行）")
 
             tags = card.get("tags", [])
             if tags and not (isinstance(tags, list) and all(isinstance(t, str) for t in tags)):

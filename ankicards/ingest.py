@@ -13,7 +13,7 @@ import hashlib
 import json
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .errors import CardError
@@ -28,10 +28,12 @@ EMPTY_FAIL_RATIO = 0.5         # 达到即拒绝
 
 @dataclass
 class IngestData:
-    """load_ingest 的返回值：页码→文本 + 源文件 sha256（可能缺省）。"""
+    """load_ingest 的返回值：页码/定位→文本 + 源文件 sha256（可能缺省）。"""
 
     pages: dict[int, str]
     source_sha256: str | None = None
+    format: str = "pdf"
+    locators: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -302,7 +304,7 @@ def ingest(source: str | Path, out: str | Path | None = None,
 
 
 def load_ingest(path: str | Path) -> IngestData:
-    """读 ingest 产物，返回页码文本与源文件 sha256，供溯源闸门使用。"""
+    """读 ingest 产物，返回页码/定位文本与源文件 sha256，供溯源闸门使用。"""
     try:
         data = load_json(Path(path))
     except CardError as exc:
@@ -312,6 +314,31 @@ def load_ingest(path: str | Path) -> IngestData:
     units = data.get("units")
     if not isinstance(units, list):
         raise IngestError(f"{path} 不是有效的 ingest 产物（缺少 units）")
+    sha = data.get("source_sha256")
+    if sha is not None and not isinstance(sha, str):
+        raise IngestError(f"{path}: source_sha256 必须是字符串")
+    fmt = data.get("format")
+    if fmt not in (None, "pdf", "docx"):
+        raise IngestError(f"{path}: format 必须是 pdf/docx，实际为 {fmt!r}")
+    if fmt is None:
+        first = units[0] if units else None
+        fmt = "docx" if isinstance(first, dict) and "locator" in first else "pdf"
+
+    if fmt == "docx":
+        locators: dict[str, str] = {}
+        for unit in units:
+            if not isinstance(unit, dict):
+                raise IngestError(f"{path}: units 必须是对象数组")
+            locator = unit.get("locator") or unit.get("id")
+            if not isinstance(locator, str) or not locator:
+                raise IngestError(f"{path}: DOCX unit 缺少 locator")
+            if locator in locators:
+                raise IngestError(f"{path}: DOCX locator 重复: {locator}")
+            locators[locator] = str(unit.get("text", ""))
+        if not locators:
+            raise IngestError(f"{path} 里没有任何段落/表格行")
+        return IngestData(pages={}, source_sha256=sha, format="docx", locators=locators)
+
     pages: dict[int, str] = {}
     for unit in units:
         if not isinstance(unit, dict) or not isinstance(unit.get("page"), int):
@@ -319,10 +346,7 @@ def load_ingest(path: str | Path) -> IngestData:
         pages[unit["page"]] = str(unit.get("text", ""))
     if not pages:
         raise IngestError(f"{path} 里没有任何页面")
-    sha = data.get("source_sha256")
-    if sha is not None and not isinstance(sha, str):
-        raise IngestError(f"{path}: source_sha256 必须是字符串")
-    return IngestData(pages=pages, source_sha256=sha)
+    return IngestData(pages=pages, source_sha256=sha, format="pdf")
 
 
 def main_cli(args) -> int:
