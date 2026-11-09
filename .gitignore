@@ -55,7 +55,6 @@ output/sections/
 .claude/
 .codex/
 .opencode/
-AGENTS.md
 
 # ============================================================
 # Secrets & environment
