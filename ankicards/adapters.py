@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -203,6 +204,8 @@ def from_mqtt_md(source: Path, name: str = "MQTT协议") -> DeckData:
 _DOCX_ITEM_BOLD = re.compile(r"^\d+[.、]\s*\*\*(.+?)\*\*\s*[：:]\s*(.+)$")
 _DOCX_ITEM_PLAIN = re.compile(r"^\d+[.、]\s*(.+?)\s*[：:]\s*(.+)$")
 _DOCX_TABLE_HEADERS = {"解释", "说明", "定义", "含义", "描述", "内容"}
+_DOCX_HEADER_FIRST = {"概念", "术语", "名称", "字段", "项目", "关键词",
+                      "题目", "问题", "主题", "类别", "参数", "属性", "指标", "符号"}
 
 
 def _docx_heading(text: str) -> str:
@@ -231,9 +234,12 @@ def from_docx_points(source: Path, name: str = "DOCX知识点") -> DeckData:
         import docx  # type: ignore
     except ImportError as exc:  # pragma: no cover - 依赖环境
         raise CardError("需要 python-docx：pip install -r requirements.txt") from exc
+    from docx.opc.exceptions import PackageNotFoundError
+    from lxml.etree import XMLSyntaxError
     try:
         document = docx.Document(str(source))
-    except Exception as exc:  # noqa: BLE001 - 损坏/加密的异常类型不稳定
+    except (PackageNotFoundError, zipfile.BadZipFile, XMLSyntaxError,
+            KeyError, ValueError, OSError) as exc:
         raise CardError(f"无法打开 DOCX（损坏或已加密）: {exc}") from exc
 
     deck = DeckData(name=name, source_kind="docx")
@@ -263,7 +269,10 @@ def from_docx_points(source: Path, name: str = "DOCX知识点") -> DeckData:
             cells = block.cells
             if len(cells) < 2:
                 continue
-            if block.row_index == 1 and cells[1] in _DOCX_TABLE_HEADERS:
+            # 只有“首格也是表头词”时才丢首行；避免把 ["端口","解释"] 这类真实数据误判为表头。
+            if (block.row_index == 1
+                    and cells[0] in _DOCX_HEADER_FIRST
+                    and cells[1] in _DOCX_TABLE_HEADERS):
                 continue
             deck.add(section, {
                 "type": "qa",

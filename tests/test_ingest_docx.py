@@ -9,6 +9,7 @@ import hashlib
 import json
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -108,6 +109,24 @@ class IngestDocxTest(unittest.TestCase):
                 ingest_mod.ingest_docx(path, out=Path(tmp) / "out.json")
             self.assertEqual(ctx.exception.code, 2)
             self.assertIn("损坏或已加密", str(ctx.exception))
+
+    def test_zip_without_docx_package_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "fake.docx"
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("hello.txt", "x")
+            with self.assertRaises(ingest_mod.IngestError) as ctx:
+                ingest_mod.ingest_docx(path, out=Path(tmp) / "out.json")
+            self.assertEqual(ctx.exception.code, 2)
+            self.assertIn("无法打开 DOCX", str(ctx.exception))
+
+    def test_memory_error_not_wrapped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "a.docx"
+            make_docx(path, ["一"])
+            with mock.patch("docx.Document", side_effect=MemoryError):
+                with self.assertRaises(MemoryError):
+                    ingest_mod.ingest_docx(path, out=Path(tmp) / "out.json")
 
     def test_max_blocks(self):
         with tempfile.TemporaryDirectory() as tmp:

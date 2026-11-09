@@ -78,6 +78,11 @@ class DeckSpec:
     def has_pages(self) -> bool:
         return any(card.get("pages") for _, _, card in self.iter_cards())
 
+    @property
+    def has_docx_locators(self) -> bool:
+        return any(DOCX_LOCATOR_RE.fullmatch(str(card.get("source", "")).strip())
+                   for _, _, card in self.iter_cards())
+
     def iter_cards(self):
         for sec in self.sections:
             for idx, card in enumerate(sec["cards"], 1):
@@ -209,6 +214,11 @@ def validate(spec: DeckSpec, page_count: int | None = None,
     if kind == "unknown" and spec.card_count:
         choices = "、".join(sorted(SOURCE_KINDS - {"unknown"}))
         rep.add_warning("deck.json", f"未声明 source_kind（可选 {choices}），按 unknown 处理")
+    if kind == "unknown" and spec.has_docx_locators:
+        rep.add_warning(
+            "deck.json",
+            "检测到 DOCX 定位，但 deck.json 未把 source_kind 设为 docx；"
+            "构建/预览仍会要求 --ingest")
 
     pages_without_text: list[int] = []
     if ingest is not None:
@@ -273,10 +283,11 @@ def validate(spec: DeckSpec, page_count: int | None = None,
                             elif p in pages_without_text:
                                 rep.add_error(where, f"页码 {p} 在 ingest 产物中没有文本（可能是空页）")
 
-            if kind == "docx":
+            is_docx_locator = bool(DOCX_LOCATOR_RE.fullmatch(source))
+            if kind == "docx" or (kind == "unknown" and is_docx_locator):
                 if not source:
                     rep.add_error(where, "source_kind=docx 时 source 必填（para:N 或 table:T/rR）")
-                elif not DOCX_LOCATOR_RE.fullmatch(source):
+                elif not is_docx_locator:
                     rep.add_error(
                         where, f"DOCX 定位格式非法: {source!r}（应为 para:N 或 table:T/rR）")
                 elif locators is not None:

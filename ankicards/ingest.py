@@ -224,9 +224,12 @@ def ingest_docx(docx_path: str | Path, out: str | Path | None = None,
     _check_out_path(out_path, repo_root)
 
     docx = _import_docx()
+    from docx.opc.exceptions import PackageNotFoundError
+    from lxml.etree import XMLSyntaxError
     try:
         doc = docx.Document(str(path))
-    except Exception as exc:  # noqa: BLE001 - 损坏/加密的异常类型不稳定
+    except (PackageNotFoundError, zipfile.BadZipFile, XMLSyntaxError,
+            KeyError, ValueError, OSError) as exc:
         raise IngestError(f"无法打开 DOCX（损坏或已加密）: {exc}") from exc
 
     units = []

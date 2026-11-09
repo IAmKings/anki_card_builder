@@ -161,6 +161,35 @@ class DocxGateTest(unittest.TestCase):
         self.assertIn("不是文件", text)
         self.assertNotIn("Traceback", text)
 
+    def test_unknown_kind_with_docx_locator_requires_gate(self):
+        _path, _data, _out = self._ingest()
+        deck = make_deck(self.tmp / "deck", [qa("para:1")], source_kind="unknown")
+        spec = load_spec(deck)
+        from ankicards.cli import _require_gate
+        with self.assertRaises(GateError):
+            _require_gate(spec, None)
+
+    def test_unknown_kind_locator_checked_when_ingest_given(self):
+        _path, data, _out = self._ingest()
+        deck = make_deck(self.tmp / "deck", [qa("para:99")], source_kind="unknown")
+        report = validate(load_spec(deck), locators=data.locators)
+        self.assertTrue(any("不在 ingest 产物中" in e for e in report.errors), report.errors)
+
+    def test_unknown_kind_with_docx_locator_warns(self):
+        _path, _data, _out = self._ingest()
+        deck = make_deck(self.tmp / "deck", [qa("para:1")], source_kind="unknown")
+        report = validate(load_spec(deck))
+        self.assertTrue(any("未把 source_kind 设为 docx" in w for w in report.warnings),
+                        report.warnings)
+
+    def test_unknown_kind_build_cli_requires_ingest(self):
+        path, _data, _out = self._ingest()
+        deck = make_deck(self.tmp / "deck", [qa("para:1")], source_kind="unknown")
+        code, text = run(["build", str(deck), "--out", str(self.tmp / "x.apkg"),
+                          "--docx", str(path)])
+        self.assertEqual(code, 1, text)
+        self.assertIn("溯源闸门", text)
+
     def test_build_gate_requires_ingest(self):
         _path, _data, _out = self._ingest()
         deck = make_deck(self.tmp / "deck", [qa("para:1")])

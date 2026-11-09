@@ -3,6 +3,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 try:
     import docx  # type: ignore
@@ -77,6 +78,32 @@ class DocxPointsAdapterTest(unittest.TestCase):
                                         repo_root=self.tmp)
         data = ingest_mod.load_ingest(result.out_path)
         self.assertTrue(all(c["source"] in data.locators for c in cards))
+
+    def test_table_first_row_data_not_dropped(self):
+        path = self.tmp / "data.docx"
+        doc = docx.Document()
+        doc.add_heading("数据", level=1)
+        table = doc.add_table(rows=2, cols=2)
+        for r, row in enumerate([["端口", "解释"], ["8080", "服务"]]):
+            for c, value in enumerate(row):
+                table.cell(r, c).text = value
+        doc.save(str(path))
+
+        cards = ADAPTERS["docx-points"](path).sections["数据"]
+        self.assertEqual([c["source"] for c in cards], ["table:1/r1", "table:1/r2"])
+        self.assertEqual((cards[0]["q"], cards[0]["a"]), ("端口", "解释"))
+
+    def test_corrupt_docx_rejected(self):
+        path = self.tmp / "bad.docx"
+        path.write_bytes(b"not a zip")
+        with self.assertRaises(CardError) as ctx:
+            ADAPTERS["docx-points"](path)
+        self.assertIn("无法打开 DOCX", str(ctx.exception))
+
+    def test_memory_error_not_wrapped(self):
+        with mock.patch("docx.Document", side_effect=MemoryError):
+            with self.assertRaises(MemoryError):
+                ADAPTERS["docx-points"](self.path)
 
     def test_sources_match_ingest_locators(self):
         result = ingest_mod.ingest_docx(self.path, out=self.tmp / "ing.json",

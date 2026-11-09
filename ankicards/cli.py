@@ -121,7 +121,9 @@ def _validated(args):
 
 def _require_gate(spec: DeckSpec, ingest) -> None:
     """含 pages 或 DOCX 定位的牌组构建/预览前必须过溯源闸门；在报告打印之后调用。"""
-    if (spec.has_pages or spec.source_kind == "docx") and ingest is None:
+    needs_ingest = (spec.has_pages or spec.source_kind == "docx"
+                    or spec.has_docx_locators)
+    if needs_ingest and ingest is None:
         raise GateError(
             "该牌组引用 PDF 页码或 DOCX 定位，请先 ingest 并传 --ingest（交付前必须过溯源闸门）")
 
