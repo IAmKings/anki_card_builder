@@ -1,12 +1,14 @@
+![Anki 卡组制造器宣传图：把知识，做成记忆。](assets/anki-card-builder-promo.png)
+
 # Anki 卡组生成器
 
-> 多领域知识 Anki 卡片生成 — Android 面试 1270 张 + MQTT 协议 200 张 + 江诗丹顿 2023 培训手册 273 张（含图片题）。工具链：`python3 -m ankicards check|build|verify`。
+> 多领域知识 Anki 卡片生成 — Android 面试 1270 张 + MQTT 协议 200 张。工具链：`python3 -m ankicards check|build|verify`。
 
 ## 快速开始
 
 ### 1. 下载卡组
 
-前往 [Releases](../../releases) 页面，下载最新的 `Android面试卡组.apkg`。
+前往 [Releases](../../releases) 页面，下载最新的 `Android.apkg` 或 `MQTT.apkg`。
 
 ### 2. 导入 Anki
 
@@ -31,30 +33,9 @@
 | Android面试::阿里巴巴真题 | 84 张 |
 | **总计** | **1270 张** |
 
-### 江诗丹顿 2023 培训手册卡组
+### 导入提示
 
-`output/江诗丹顿2023培训手册.apkg` —— **273 张卡片**（填空卡拆分为 299 张复习卡），从 141 页带图文的内部培训手册中提取，每张卡片背面都附原文页面截图，另有 27 张腕表产品图用于“看图识系列/识表款”。
-
-| 子牌组 | 张数 | 内容 |
-|------|------|------|
-| 01 品牌与定位 | 28 | 宣传语、产量数据、座右铭、品牌平台、DNA、关键词、使命、合作 |
-| 02 制表传奇 | 46 | 关键日期、马耳他十字、1755 年以来的杰出创作、年度主题 |
-| 03 精湛工艺 | 37 | 打磨装饰、日内瓦印记与认证对比、艺术大师工艺、制表师职涯 |
-| 04 系列·核心系列 | 49 | 系列金字塔、上市时间、产品术语；Patrimony／Traditionnelle／Fiftysix／Overseas／Égérie |
-| 05 系列·特色与阁楼工匠 | 48 | Historiques／Malte／Heures Créatives／Métiers d'Art／Les Cabinotiers |
-| 06 机芯 | 22 | 复杂功能四层分类、商用机芯、非凡机芯、57260 与 2756 等 |
-| 07 钻石 | 10 | 钻石标准、火焰式切割 |
-| 08 售后与保养 | 17 | 调校与上链、保养周期、服务类型、保修、官方文件 |
-| 09 合规与资源 | 15 | CITES／RJC／金伯利进程、学习资源、客户体验名言 |
-
-卡片类型：问答卡（正面问题，背面答案＋原文页截图）、填空卡（数字/年份/规格）、图片题（正面腕表照片，背面系列/型号与年代）。
-
-预览：`output/江诗丹顿2023培训手册_预览.html`（单文件，双击即可浏览全部卡片与配图）。
-
-> **导入提示**：用微信／QQ 传输 `.apkg` 时，部分版本会把文件改名为 `apk.1`、`apk.2` 之类，AnkiDroid 会提示“这不是一个有效的 Anki 卡组文件”。把后缀改回 `.apkg` 即可导入，或用数据线／网盘传输。
-> 手机空间紧张时可在构建时加 `--lite`（不含原文页截图，约 1 MB）。
-
-> **关于仓库内容**：该手册为品牌内部机密培训资料（页脚标注「专有机密资料——仅供内部培训使用」），因此本仓库只提交生成器、`cards/*.json` 卡片数据与裁剪配置，**原版 PDF、成品 `.apkg` 与 HTML 预览均不提交**，需在本地用 `python3 -m ankicards build data/江斯丹顿 --pdf <手册.pdf> --out <输出.apkg>` 生成。
+用微信／QQ 传输 `.apkg` 时，部分版本会把文件改名为 `apk.1`、`apk.2` 之类，AnkiDroid 会提示“这不是一个有效的 Anki 卡组文件”。把后缀改回 `.apkg` 即可导入，或用数据线／网盘传输。
 
 ## 内容覆盖
 
@@ -179,7 +160,7 @@ DOCX 摄取限制：压缩包 ≤20 MB、解压后 ≤200 MB、块数 ≤5000（
 | 目录 | 性质 | 是否入库 |
 |---|---|---|
 | `data/Android/` | 公开面试题库（MD） | ✅ 可入库，供他人复现构建 |
-| `data/江斯丹顿/` | 品牌内部培训手册（PDF + cards + crops） | ❌ 机密，已被 .gitignore 排除，仅本机构建 |
+| `data/MQTT/` | 公开 MQTT 知识点（MD） | ✅ 可入库，供他人复现构建 |
 | `.work/ingest/` | PDF 逐页 / DOCX 逐段文本产物 | ❌ 被 gitignore；含全文，不得入库 |
 | `output/*.apkg` | 构建产物 | 视内容而定；含内部页截图的不要入库 |
 
@@ -192,6 +173,9 @@ python3 -m ankicards import --list
 python3 -m ankicards import data/Android --adapter android-md --out /tmp/android-deck --name "Android面试"
 python3 -m ankicards build  /tmp/android-deck --out output/Android面试卡组.apkg
 
+python3 -m ankicards import data/MQTT --adapter mqtt-md --out /tmp/mqtt-deck --name "MQTT协议"
+python3 -m ankicards build  /tmp/mqtt-deck --out output/MQTT协议卡组.apkg
+
 # DOCX：先摄取定位，再用 docx-points 生成卡片，最后带同源校验过闸门
 python3 -m ankicards ingest 笔记.docx
 python3 -m ankicards import 笔记.docx --adapter docx-points --out /tmp/docx-deck
@@ -201,7 +185,7 @@ python3 -m ankicards check  /tmp/docx-deck --docx 笔记.docx --ingest .work/ing
 | 适配器 | 输入 | 说明 |
 |------|------|------|
 | `android-md` | MD 题库目录 | 复用 `src/parsers` + 质量过滤 + 去重；实测重建 1270 张、5 个子牌组，与已入库卡组一致 |
-| `mqtt-md` | MQTT 知识点 MD | 每个知识点生成一问一答 + 一道四选一；**源数据 `data3_mqtt/` 当前不在仓库，需要自备** |
+| `mqtt-md` | MQTT 知识点 MD | 每个知识点生成一问一答 + 一道四选一；源数据在 `data/MQTT/`，可直接复现 |
 | `docx-points` | 单个 DOCX | 标题→子牌组；`1. **关键词**：解释` 段落、至少两列的表格行→问答；`source` 写 `para:N`/`table:T/rR`；自动编号（`numPr`）不读取，会提示改为手写编号；首行只有“首格+第二格都像表头”时才跳过 |
 
 新增一种格式 = 在 `ankicards/adapters.py` 里加一个带 `@register("名字")` 的函数，
@@ -223,7 +207,7 @@ python3 -m ankicards check  /tmp/docx-deck --docx 笔记.docx --ingest .work/ing
 ├── tests/                   # 数据契约与确定性 ID 的回归测试
 ├── src/                     # 解析器与处理逻辑（供适配器复用）
 ├── data/Android/            # 公开题库（MD）
-├── data/江斯丹顿/           # 机密手册（不入库，仅本机构建）
+├── data/MQTT/               # 公开 MQTT 知识点（MD）
 ├── output/                  # 生成的 .apkg
 ├── requirements.txt
 └── AGENTS.md / docs/agents/ # 仓库协作约定
