@@ -131,7 +131,7 @@ python3 -m ankicards verify output/xxx.apkg
 构建与预览对**含 pages 或 DOCX 定位的牌组强制要求 `--ingest`**：没有 ingest 产物就无法证明页码/段落真实存在，宁可拒绝也不产出假溯源。
 同时给 `--pdf`/`--docx` 与 `--ingest` 时会比对 `source_sha256`；不是同一份文件直接 exit 2。
 
-**首版格式支持矩阵**（明确的能力边界，避免“看起来支持”）：
+**格式支持矩阵（v0.2）**（明确的能力边界，避免“看起来支持”）：
 
 | 输入 | 状态 | 说明 |
 |---|---|---|
@@ -142,6 +142,11 @@ python3 -m ankicards verify output/xxx.apkg
 | 扫描版 PDF | ❌ 明确拒绝 | 无文本层；本工具不含 OCR；空页 ≥50% 时 ingest 直接拒绝 |
 | 可修复的损坏 PDF | ⚠️ 默认拒绝 | `--allow-repaired` 显式放行；文本可能缺失 |
 | TXT | ⏸ 未注册适配器 | 缺“答案从哪来”的确定性来源，暂不做 |
+
+DOCX 摄取限制：压缩包 ≤20 MB、解压后 ≤200 MB、块数 ≤5000（`--max-blocks` 可放宽）；
+只读 body 段落与表格行，忽略页眉页脚、图片、批注；不读取 Word 自动编号（`numPr`）。
+`docx-points` 只在首行“首格 + 第二格”都像表头时跳过（如 `概念 | 解释`），
+`端口 | 解释` 会保留为数据，避免误删真实行。
 
 依赖：`requirements.txt`（genanki + python-docx，必需）；`requirements-render.txt`（PyMuPDF，仅渲染 PDF 页面/裁图/带图预览时需要）。
 
@@ -197,7 +202,7 @@ python3 -m ankicards check  /tmp/docx-deck --docx 笔记.docx --ingest .work/ing
 |------|------|------|
 | `android-md` | MD 题库目录 | 复用 `src/parsers` + 质量过滤 + 去重；实测重建 1270 张、5 个子牌组，与已入库卡组一致 |
 | `mqtt-md` | MQTT 知识点 MD | 每个知识点生成一问一答 + 一道四选一；**源数据 `data3_mqtt/` 当前不在仓库，需要自备** |
-| `docx-points` | 单个 DOCX | 标题→子牌组；`1. **关键词**：解释` 段落、至少两列的表格行→问答；`source` 写 `para:N`/`table:T/rR`；自动编号（`numPr`）不读取，会提示改为手写编号 |
+| `docx-points` | 单个 DOCX | 标题→子牌组；`1. **关键词**：解释` 段落、至少两列的表格行→问答；`source` 写 `para:N`/`table:T/rR`；自动编号（`numPr`）不读取，会提示改为手写编号；首行只有“首格+第二格都像表头”时才跳过 |
 
 新增一种格式 = 在 `ankicards/adapters.py` 里加一个带 `@register("名字")` 的函数，
 产出 `DeckData`（含 `source_kind`），不需要再复制打包逻辑。`import` 会把

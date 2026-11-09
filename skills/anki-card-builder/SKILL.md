@@ -29,7 +29,7 @@ python3 -m ankicards verify output/xxx.apkg
 
 - `ingest`：文本型 PDF 逐页、DOCX 逐段/逐表格行；加密/扫描件/损坏会 exit 2，损坏但可修复的 PDF
   默认也拒绝（`--allow-repaired` 显式放行）；不做 OCR。MD/TXT 请走 `import --adapter`。
-  DOCX 默认上限 20 MB / 5000 块（`--max-blocks` 放宽），忽略页眉页脚、图片、批注；
+  DOCX 默认上限 20 MB / 解压后 200 MB / 5000 块（`--max-blocks` 放宽），忽略页眉页脚、图片、批注；
   不读取 Word 自动编号（`numPr`），需手写编号或把编号粘贴为文本。
 - `check`：只读数据；给了 `--pdf` 才检查页码上界与裁图越界；给了 `--ingest` 则启用**溯源闸门**——
   PDF 卡片引用的每一页、DOCX 卡片引用的每个 `para:N`/`table:T/rR` 都必须出现在 ingest 产物里且有文本。
