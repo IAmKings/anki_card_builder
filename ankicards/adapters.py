@@ -14,6 +14,8 @@ from pathlib import Path
 
 from .docx import iter_docx_blocks
 from .errors import CardError
+from .schema import WEB_LOCATOR_RE
+from .web import HtmlBlock, WebError, iter_html_blocks
 
 ADAPTERS: dict[str, object] = {}
 
@@ -377,6 +379,92 @@ def from_txt_points(source: Path, name: str = "TXT知识点") -> DeckData:
         raise CardError(
             "没有解析出编号点；TXT 需形如 `1. **关键词**：解释` 或 `1. 关键词：解释`，"
             "标题可用 `# 标题` 或 `一、标题`")
+    return deck
+
+
+# ---------------------------------------------------------------------------
+# Web：标题 + 编号段落/列表项，source 用提取块号 block:N
+# ---------------------------------------------------------------------------
+
+
+def _read_web_blocks(source: Path) -> list[HtmlBlock]:
+    suffix = source.suffix.lower()
+    if suffix == ".json":
+        try:
+            data = json.loads(source.read_text(encoding="utf-8-sig"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise CardError(f"无法读取 web ingest 产物: {exc}") from exc
+        if not isinstance(data, dict) or data.get("format") != "web":
+            raise CardError("JSON 不是 web 的 ingest 产物（format 需为 web）")
+        units = data.get("units")
+        if not isinstance(units, list) or not units:
+            raise CardError("web ingest 产物里没有 units")
+        blocks: list[HtmlBlock] = []
+        seen: set[str] = set()
+        for unit in units:
+            if not isinstance(unit, dict):
+                raise CardError("web ingest 产物: units 必须是对象数组")
+            locator = unit.get("locator") or unit.get("id")
+            if not isinstance(locator, str) or not WEB_LOCATOR_RE.fullmatch(locator):
+                raise CardError(f"web ingest 产物: 非法 block 定位 {locator!r}")
+            if locator in seen:
+                raise CardError(f"web ingest 产物: block 定位重复 {locator}")
+            seen.add(locator)
+            kind = unit.get("kind") or "paragraph"
+            if kind not in ("heading", "paragraph", "list_item", "table_row"):
+                kind = "paragraph"
+            blocks.append(HtmlBlock(kind=kind, locator=locator,
+                                    text=str(unit.get("text", ""))))
+        return blocks
+    if suffix in (".html", ".htm"):
+        try:
+            return list(iter_html_blocks(source.read_bytes()))
+        except OSError as exc:
+            raise CardError(f"无法读取 HTML: {exc}") from exc
+        except WebError as exc:
+            raise CardError(str(exc)) from exc
+    raise CardError(
+        f"web-points 只支持 .html/.htm 或 web ingest .json，实际为 {suffix or '(无扩展名)'}")
+
+
+@register("web-points")
+def from_web_points(source: Path, name: str = "Web知识点") -> DeckData:
+    """网页知识点：标题块 → 子牌组，编号段落/列表项 → 问答，source=block:N。"""
+    source = Path(source)
+    if source.is_dir():
+        raise CardError("web-points 只接受单个 .html/.htm 或 web ingest .json；请传文件路径")
+    blocks = _read_web_blocks(source)
+    deck = DeckData(name=name, source_kind="web")
+    section = ""
+    card_count = 0
+    for block in blocks:
+        text = block.text.strip()
+        if not text:
+            continue
+        if block.kind == "heading":
+            section = _txt_heading(text) or _docx_heading(text) or text
+            continue
+        if block.kind == "table_row":
+            continue
+        point = _txt_point(text) or _docx_point(text)
+        if point is None:
+            continue
+        keyword, explanation = point
+        tags = ["source:web", "type:qa"]
+        if section:
+            tags.append(f"WEB::{section}")
+        deck.add(section, {
+            "type": "qa",
+            "q": _front(keyword),
+            "a": explanation,
+            "source": block.locator,
+            "tags": tags,
+        })
+        card_count += 1
+    if card_count == 0:
+        raise CardError(
+            "没有解析出编号点；网页需有标题（h1-h6）和形如 "
+            "`1. **关键词**：解释` 的段落/列表项；表格行不自动出题")
     return deck
 
 

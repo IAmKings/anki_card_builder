@@ -84,18 +84,18 @@
 新牌组统一走一个入口，不再为每份文档写一个脚本：
 
 ```bash
-# 1) 文本型 PDF → 逐页文本（默认写 .work/ingest/，被 gitignore；带 source_sha256）
-python3 -m ankicards ingest <手册.pdf>
+# 1) 源 → 可寻址文本（PDF/DOCX/TXT/HTML/URL；默认写 .work/ingest/，被 gitignore）
+python3 -m ankicards ingest <手册.pdf|笔记.docx|笔记.txt|page.html|https://...>
 
-# 2) 校验卡片数据；--ingest 启用溯源闸门（页码必须存在且有文本）
-python3 -m ankicards check  <牌组目录> [--pdf 手册.pdf] [--ingest .work/ingest/xxx.json]
+# 2) 校验卡片数据；--ingest 启用溯源闸门（页码/定位必须存在且有文本）
+python3 -m ankicards check  <牌组目录> [--pdf 手册.pdf|--html page.html] [--ingest .work/ingest/xxx.json]
 
-# 3) 构建 apkg：引用 PDF 页码的牌组**必须**给 --ingest；有图片题时还必须给 --pdf
+# 3) 构建 apkg：引用 pages/DOCX/TXT/Web 定位的牌组**必须**给 --ingest；有图片题时还必须给 --pdf
 python3 -m ankicards build  <牌组目录> --out output/xxx.apkg --ingest .work/ingest/xxx.json \
-                            [--pdf 手册.pdf] [--lite]
+                            [--pdf 手册.pdf|--html page.html] [--lite]
 
 # 4) 预览同样过闸门；5) 导出后结构审计
-python3 -m ankicards preview <牌组目录> --out x.html --ingest .work/ingest/xxx.json [--pdf 手册.pdf]
+python3 -m ankicards preview <牌组目录> --out x.html --ingest .work/ingest/xxx.json [--pdf 手册.pdf|--html page.html]
 python3 -m ankicards verify output/xxx.apkg
 ```
 
@@ -104,15 +104,15 @@ python3 -m ankicards verify output/xxx.apkg
 | 码 | 含义 | 典型场景 |
 |---|---|---|
 | `0` | 成功 | — |
-| `1` | 数据/闸门失败 | schema 校验不通过、含 pages/DOCX 定位却未给 `--ingest`、verify 结构错误 |
+| `1` | 数据/闸门失败 | schema 校验不通过、含 pages/DOCX/TXT/Web 定位却未给 `--ingest`、verify 结构错误 |
 | `2` | 用法或环境错误 | 缺必填参数、源目录为空、拒绝覆盖、坏 JSON、PDF 不可读/加密、缺 `--pdf` 却有图片题、apkg 不是 zip |
 
 坏 JSON、加密 PDF、缺 `--pdf` 这类问题会以可读文案 + exit 2 结束，不再抛 traceback。
 
-构建与预览对**含 pages、DOCX 或 TXT 定位的牌组强制要求 `--ingest`**：没有 ingest 产物就无法证明页码/段落/行号真实存在，宁可拒绝也不产出假溯源。
-同时给 `--pdf`/`--docx`/`--txt` 与 `--ingest` 时会比对 `source_sha256`；不是同一份文件直接 exit 2。
+构建与预览对**含 pages、DOCX/TXT/WEB 定位的牌组强制要求 `--ingest`**：没有 ingest 产物就无法证明页码/段落/行号/块号真实存在，宁可拒绝也不产出假溯源。
+同时给 `--pdf`/`--docx`/`--txt`/`--html` 与 `--ingest` 时会比对 `source_sha256`；不是同一份文件直接 exit 2。URL 产物没有本地文件 sha，只做定位闸门，不再联网校验。
 
-**格式支持矩阵（v0.3-dev）**（明确的能力边界，避免“看起来支持”；网页支持仍在开发）：
+**格式支持矩阵（v0.3）**（明确的能力边界，避免“看起来支持”）：
 
 | 输入 | 状态 | 说明 |
 |---|---|---|
@@ -121,17 +121,20 @@ python3 -m ankicards verify output/xxx.apkg
 | 卡片 JSON | ✅ `check/build/verify` | 手工/agent 提炼后的事实来源 |
 | DOCX | ✅ `ingest` + `import --adapter docx-points` | 逐段落/表格行文本 + `para:N`/`table:T/rR` 定位；忽略页眉页脚/图片/批注；不读取 Word 自动编号（`numPr`） |
 | TXT | ✅ `ingest` + `import --adapter txt-points` | 物理行 `line:N`；标题 `# 标题` 或 `一、标题`，编号点 `1. **关键词**：解释`；默认 UTF-8（含 BOM），旧文件用 `--encoding gb18030` |
+| Web（URL / 本地 HTML） | ✅ `ingest` + `import --adapter web-points` | 仅静态 HTML；提取标题/段落/列表项/表格行，`block:N` 定位；不执行 JS、不登录、不下载图片；URL 自动出卡用 manifest 两步 |
 | 扫描版 PDF | ❌ 明确拒绝 | 无文本层；本工具不含 OCR；空页 ≥50% 时 ingest 直接拒绝 |
 | 可修复的损坏 PDF | ⚠️ 默认拒绝 | `--allow-repaired` 显式放行；文本可能缺失 |
 
 TXT 摄取限制：文件 ≤10 MB、行数 ≤50000（`--max-lines` 可放宽）；空行也计入 `line:N`。
+
+Web 摄取限制：本地 HTML/URL 响应体 ≤5 MB、有效块 ≤5000、超时 20 秒、最多 5 次 redirect（`--max-bytes`/`--timeout` 可调）；只接受 `text/html`/`application/xhtml+xml`；默认拒绝 localhost/内网地址，确需抓本机页面加 `--allow-private-network`。
 
 DOCX 摄取限制：压缩包 ≤20 MB、解压后 ≤200 MB、块数 ≤5000（`--max-blocks` 可放宽）；
 只读 body 段落与表格行，忽略页眉页脚、图片、批注；不读取 Word 自动编号（`numPr`）。
 `docx-points` 只在首行“首格 + 第二格”都像表头时跳过（如 `概念 | 解释`），
 `端口 | 解释` 会保留为数据，避免误删真实行。
 
-依赖：`requirements.txt`（genanki + python-docx，必需）；`requirements-render.txt`（PyMuPDF，仅渲染 PDF 页面/裁图/带图预览时需要）。
+依赖：`requirements.txt`（genanki + python-docx + lxml，必需；lxml 也用于 HTML 解析）；`requirements-render.txt`（PyMuPDF，仅渲染 PDF 页面/裁图/带图预览时需要）。
 
 牌组目录的契约：
 
@@ -147,8 +150,8 @@ DOCX 摄取限制：压缩包 ≤20 MB、解压后 ≤200 MB、块数 ≤5000（
 安装与依赖说明见 [`skills/README.md`](skills/README.md)。
 
 定位语义（**唯一真值**）：
-- `pages` 只表示 **PDF 页码**，用于背面截图与裁图；`source_kind` 为 `md/txt/docx/image` 时写 `pages` 会报错；未声明（`unknown`）时兼容放行，但整副牌组只给 1 条 warning。
-- `source` 用于非 PDF 来源的溯源；`source_kind=docx` 时必须是 `para:N`（body 内第 N 个段落，空段落也计数）或 `table:T/rR`（第 T 个表格第 R 行）；`source_kind=txt` 时必须是 `line:N`（`splitlines()` 的物理行号，空行也计数）。两者都要求能在 ingest 产物中找到、文本非空；MD 仍用自由文本。
+- `pages` 只表示 **PDF 页码**，用于背面截图与裁图；`source_kind` 为 `md/txt/docx/web/image` 时写 `pages` 会报错；未声明（`unknown`）时兼容放行，但整副牌组只给 1 条 warning。
+- `source` 用于非 PDF 来源的溯源；`source_kind=docx` 时必须是 `para:N`（body 内第 N 个段落，空段落也计数）或 `table:T/rR`（第 T 个表格第 R 行）；`source_kind=txt` 时必须是 `line:N`（`splitlines()` 的物理行号，空行也计数）；`source_kind=web` 时必须是 `block:N`（提取后的有效块序号，空块不计数）。三者都要求能在 ingest 产物中找到、文本非空；MD 仍用自由文本。
 - 两者可以并存：`pages` 出截图，`source` 给段落级定位。
 - 卡片字段是**白名单**，未知字段直接报错，避免“校验通过但构建不消费”的假溯源。
 
@@ -164,7 +167,7 @@ DOCX 摄取限制：压缩包 ≤20 MB、解压后 ≤200 MB、块数 ≤5000（
 |---|---|---|
 | `data/Android/` | 公开面试题库（MD） | ✅ 可入库，供他人复现构建 |
 | `data/MQTT/` | 公开 MQTT 知识点（MD） | ✅ 可入库，供他人复现构建 |
-| `.work/ingest/` | PDF 逐页 / DOCX 逐段 / TXT 逐行文本产物 | ❌ 被 gitignore；含全文，不得入库 |
+| `.work/ingest/` | PDF 逐页 / DOCX 逐段 / TXT 逐行 / Web 逐块文本产物 | ❌ 被 gitignore；含全文，不得入库 |
 | `output/*.apkg` | 构建产物 | 视内容而定；含内部页截图的不要入库 |
 
 ### 适配器（原始资料 → cards/*.json）
@@ -188,6 +191,16 @@ python3 -m ankicards check  /tmp/docx-deck --docx 笔记.docx --ingest .work/ing
 python3 -m ankicards ingest 笔记.txt --encoding utf-8-sig
 python3 -m ankicards import 笔记.txt --adapter txt-points --out /tmp/txt-deck
 python3 -m ankicards check  /tmp/txt-deck --txt 笔记.txt --ingest .work/ingest/笔记-<sha8>.json
+
+# Web（本地 HTML）：提取块 + 生成卡片 + 同源校验
+python3 -m ankicards ingest page.html
+python3 -m ankicards import page.html --adapter web-points --out /tmp/web-deck
+python3 -m ankicards check  /tmp/web-deck --html page.html --ingest .work/ingest/page-<sha8>.json
+
+# Web（URL）：先抓取成 manifest，再从同一份 manifest 出卡，避免二次抓取
+python3 -m ankicards ingest https://example.com/article
+python3 -m ankicards import .work/ingest/example_com-article-<sha8>.json --adapter web-points --out /tmp/web-deck
+python3 -m ankicards check  /tmp/web-deck --ingest .work/ingest/example_com-article-<sha8>.json
 ```
 
 | 适配器 | 输入 | 说明 |
@@ -196,6 +209,7 @@ python3 -m ankicards check  /tmp/txt-deck --txt 笔记.txt --ingest .work/ingest
 | `mqtt-md` | MQTT 知识点 MD | 每个知识点生成一问一答 + 一道四选一；源数据在 `data/MQTT/`，可直接复现 |
 | `docx-points` | 单个 DOCX | 标题→子牌组；`1. **关键词**：解释` 段落、至少两列的表格行→问答；`source` 写 `para:N`/`table:T/rR`；自动编号（`numPr`）不读取，会提示改为手写编号；首行只有“首格+第二格都像表头”时才跳过 |
 | `txt-points` | 单个 TXT | 标题（`# 标题` / `一、标题`）→子牌组；`1. **关键词**：解释` 或 `1. 关键词：解释`→问答；`source` 写 `line:N`；只生成问答，不生成四选一 |
+| `web-points` | 单个 HTML 或 web ingest JSON | 标题（h1-h6）→子牌组；编号段落/列表项→问答；`source` 写 `block:N`；表格行不自动出题；URL 先 ingest 再 import manifest |
 
 新增一种格式 = 在 `ankicards/adapters.py` 里加一个带 `@register("名字")` 的函数，
 产出 `DeckData`（含 `source_kind`），不需要再复制打包逻辑。`import` 会把
@@ -210,7 +224,7 @@ python3 -m ankicards check  /tmp/txt-deck --txt 笔记.txt --ingest .work/ingest
 │   ├── build.py             #   打包（模型、媒体、lite）
 │   ├── verify.py            #   导出后结构审计
 │   ├── preview.py           #   单文件 HTML 预览
-│   ├── adapters.py          #   MD/DOCX/TXT → 卡片数据（android-md / mqtt-md / docx-points / txt-points）
+│   ├── adapters.py          #   MD/DOCX/TXT/Web → 卡片数据（android-md / mqtt-md / docx-points / txt-points / web-points）
 │   └── cli.py               #   check / build / verify / preview / import
 ├── skills/anki-card-builder/# 流程与判断（agent skill）
 ├── tests/                   # 数据契约与确定性 ID 的回归测试

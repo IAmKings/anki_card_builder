@@ -44,6 +44,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", "/page")
             self.send_header("Content-Length", "0")
             self.end_headers()
+        elif self.path == "/article":
+            body = ("<html><body><h1>网络</h1><p>1. **TCP**：可靠</p>"
+                    '<p>2. **UDP**：无连接</p></body></html>')
+            self._send(200, body.encode())
         elif self.path == "/json":
             self._send(200, b'{"a": 1}', "application/json")
         elif self.path == "/big":
@@ -136,6 +140,23 @@ class UrlIngestTest(FetchWebTest):
             result = ingest_mod.ingest(self.base + "/page", out=Path(tmp) / "x.json",
                                        allow_private_network=True)
             self.assertEqual(result.manifest["format"], "web")
+
+    def test_url_manifest_to_deck_end_to_end(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            manifest = ingest_mod.ingest_url(self.base + "/article",
+                                             out=tmp / "ing.json",
+                                             allow_private_network=True).out_path
+            deck = tmp / "deck"
+            code, output = run_cli(["import", str(manifest), "--adapter", "web-points",
+                                    "--out", str(deck)])
+            self.assertEqual(code, 0, output)
+            code, output = run_cli(["check", str(deck), "--ingest", str(manifest)])
+            self.assertEqual(code, 0, output)
+            code, output = run_cli(["build", str(deck), "--out", str(tmp / "x.apkg"),
+                                    "--ingest", str(manifest)])
+            self.assertEqual(code, 0, output)
+            self.assertTrue((tmp / "x.apkg").is_file())
 
     def test_cli_ingest_url(self):
         with tempfile.TemporaryDirectory() as tmp:

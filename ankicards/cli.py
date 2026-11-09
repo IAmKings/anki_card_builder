@@ -79,6 +79,19 @@ def _txt_info(txt: str | None) -> None:
         raise CardError(f"--txt 只接受 .txt 文件: {path}")
 
 
+def _web_info(html: str | None) -> None:
+    """--html 的源文件预检；路径不存在、是目录或不是 .html/.htm 都算用法错误（exit 2）。"""
+    if not html:
+        return
+    path = Path(html)
+    if not path.exists():
+        raise CardError(f"找不到 HTML: {path}")
+    if not path.is_file():
+        raise CardError(f"不是文件: {path}")
+    if path.suffix.lower() not in (".html", ".htm"):
+        raise CardError(f"--html 只接受 .html/.htm 文件: {path}")
+
+
 def _ingest_pages(args):
     if not getattr(args, "ingest", None):
         return None
@@ -102,12 +115,15 @@ def _validated(args):
     pdf = getattr(args, "pdf", None)
     docx = getattr(args, "docx", None)
     txt = getattr(args, "txt", None)
-    sources = [name for name, value in (("--pdf", pdf), ("--docx", docx), ("--txt", txt))
+    html = getattr(args, "html", None)
+    sources = [name for name, value in (("--pdf", pdf), ("--docx", docx),
+                                        ("--txt", txt), ("--html", html))
                if value]
     if len(sources) > 1:
         raise CardError(f"{'、'.join(sources)} 只能给一个")
     _docx_info(docx)
     _txt_info(txt)
+    _web_info(html)
     crop_pages = {c.get("page") for c in spec.crops.values() if isinstance(c.get("page"), int)}
     page_count, page_sizes = _pdf_info(pdf, crop_pages)
     ingest = _ingest_pages(args)
@@ -135,6 +151,18 @@ def _validated(args):
                 raise CardError("--ingest 与 --txt 不是同一份文件（sha256 不一致）")
         else:
             print("  ⚠ ingest 缺少 source_sha256，跳过同源校验", file=sys.stderr)
+    elif ingest and html:
+        if ingest.format != "web":
+            raise CardError("--html 需要 WEB 的 ingest 产物")
+        if ingest.source_sha256:
+            try:
+                actual = file_sha256(Path(html))
+            except OSError as exc:
+                raise CardError(f"无法读取 HTML {html}: {exc}") from exc
+            if actual != ingest.source_sha256:
+                raise CardError("--ingest 与 --html 不是同一份文件（sha256 不一致）")
+        else:
+            print("  ⚠ ingest 缺少 source_sha256（URL 产物），跳过同源校验", file=sys.stderr)
     elif ingest and pdf:
         if ingest.format != "pdf":
             raise CardError("--pdf 需要 PDF 的 ingest 产物")
@@ -151,11 +179,12 @@ def _validated(args):
 
 def _require_gate(spec: DeckSpec, ingest) -> None:
     """含 pages 或 DOCX 定位的牌组构建/预览前必须过溯源闸门；在报告打印之后调用。"""
-    needs_ingest = (spec.has_pages or spec.source_kind in ("docx", "txt")
-                    or spec.has_docx_locators or spec.has_txt_locators)
+    needs_ingest = (spec.has_pages or spec.source_kind in ("docx", "txt", "web")
+                    or spec.has_docx_locators or spec.has_txt_locators
+                    or spec.has_web_locators)
     if needs_ingest and ingest is None:
         raise GateError(
-            "该牌组引用 PDF 页码、DOCX 或 TXT 定位，请先 ingest 并传 --ingest"
+            "该牌组引用 PDF 页码、DOCX/TXT 或 WEB 定位，请先 ingest 并传 --ingest"
             "（交付前必须过溯源闸门）")
 
 
@@ -258,6 +287,7 @@ def main(argv: list[str] | None = None) -> int:
     p_check.add_argument("--pdf", help="源 PDF，用于页码上界与裁图越界检查")
     p_check.add_argument("--docx", help="源 DOCX，用于与 ingest 的同源校验")
     p_check.add_argument("--txt", help="源 TXT，用于与 ingest 的同源校验")
+    p_check.add_argument("--html", help="本地 HTML，用于与 ingest 的同源校验")
     p_check.add_argument("--ingest", help="ingest 产物 JSON；启用溯源闸门（页码/定位必须存在且有文本）")
     p_check.add_argument("--name", help="覆盖顶层牌组名")
     p_check.set_defaults(func=cmd_check)
@@ -268,6 +298,7 @@ def main(argv: list[str] | None = None) -> int:
     p_build.add_argument("--pdf", help="源 PDF；有图片题时必须提供")
     p_build.add_argument("--docx", help="源 DOCX；与 --ingest 做同源校验")
     p_build.add_argument("--txt", help="源 TXT；与 --ingest 做同源校验")
+    p_build.add_argument("--html", help="本地 HTML；与 --ingest 做同源校验")
     p_build.add_argument("--ingest", help="ingest 产物；引用 PDF 页码/DOCX 定位的牌组必须提供")
     p_build.add_argument("--lite", action="store_true", help="不生成原文页截图")
     p_build.add_argument("--name", help="覆盖顶层牌组名")
@@ -312,6 +343,7 @@ def main(argv: list[str] | None = None) -> int:
     p_preview.add_argument("--pdf", help="源 PDF（决定能否显示原文截图与裁图）")
     p_preview.add_argument("--docx", help="源 DOCX；与 --ingest 做同源校验")
     p_preview.add_argument("--txt", help="源 TXT；与 --ingest 做同源校验")
+    p_preview.add_argument("--html", help="本地 HTML；与 --ingest 做同源校验")
     p_preview.add_argument("--ingest", help="ingest 产物；引用 PDF 页码/DOCX 定位的牌组必须提供")
     p_preview.add_argument("--name", help="覆盖顶层牌组名")
     p_preview.set_defaults(func=cmd_preview)

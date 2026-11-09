@@ -35,7 +35,7 @@ from pathlib import Path
 from .errors import CardError
 
 CARD_TYPES = {"qa", "image", "cloze"}
-SOURCE_KINDS = {"pdf", "docx", "md", "txt", "image", "unknown"}
+SOURCE_KINDS = {"pdf", "docx", "md", "txt", "web", "image", "unknown"}
 # pages 只表示 PDF 页码；unknown 为兼容未声明 source_kind 的历史牌组而放行（仅 warning）。
 PAGES_ALLOWED = {"pdf", "unknown"}
 CARD_FIELDS = {"type", "q", "a", "text", "extra", "pages", "source", "tags", "img"}
@@ -43,6 +43,8 @@ CARD_FIELDS = {"type", "q", "a", "text", "extra", "pages", "source", "tags", "im
 DOCX_LOCATOR_RE = re.compile(r"^(?:para:[1-9]\d*|table:[1-9]\d*/r[1-9]\d*)$")
 # TXT 的 source 定位：splitlines() 的物理行号（1 基，空行也计数）。
 TXT_LOCATOR_RE = re.compile(r"^line:[1-9]\d*$")
+# Web 的 source 定位：提取后的有效块序号（1 基，空块不计数）。
+WEB_LOCATOR_RE = re.compile(r"^block:[1-9]\d*$")
 
 
 
@@ -88,6 +90,11 @@ class DeckSpec:
     @property
     def has_txt_locators(self) -> bool:
         return any(TXT_LOCATOR_RE.fullmatch(str(card.get("source", "")).strip())
+                   for _, _, card in self.iter_cards())
+
+    @property
+    def has_web_locators(self) -> bool:
+        return any(WEB_LOCATOR_RE.fullmatch(str(card.get("source", "")).strip())
                    for _, _, card in self.iter_cards())
 
     def iter_cards(self):
@@ -231,6 +238,11 @@ def validate(spec: DeckSpec, page_count: int | None = None,
             "deck.json",
             "检测到 TXT 定位，但 deck.json 未把 source_kind 设为 txt；"
             "构建/预览仍会要求 --ingest")
+    if kind == "unknown" and spec.has_web_locators:
+        rep.add_warning(
+            "deck.json",
+            "检测到 WEB 定位，但 deck.json 未把 source_kind 设为 web；"
+            "构建/预览仍会要求 --ingest")
 
     pages_without_text: list[int] = []
     if ingest is not None:
@@ -320,6 +332,19 @@ def validate(spec: DeckSpec, page_count: int | None = None,
                         rep.add_error(where, f"定位 {source} 不在 ingest 产物中")
                     elif not (locators[source] or "").strip():
                         rep.add_error(where, f"定位 {source} 在 ingest 产物中没有文本（可能是空行）")
+
+            is_web_locator = bool(WEB_LOCATOR_RE.fullmatch(source))
+            if kind == "web" or (kind == "unknown" and is_web_locator):
+                if not source:
+                    rep.add_error(where, "source_kind=web 时 source 必填（block:N）")
+                elif not is_web_locator:
+                    rep.add_error(
+                        where, f"WEB 定位格式非法: {source!r}（应为 block:N）")
+                elif locators is not None:
+                    if source not in locators:
+                        rep.add_error(where, f"定位 {source} 不在 ingest 产物中")
+                    elif not (locators[source] or "").strip():
+                        rep.add_error(where, f"定位 {source} 在 ingest 产物中没有文本（可能是空块）")
 
             tags = card.get("tags", [])
             if tags and not (isinstance(tags, list) and all(isinstance(t, str) for t in tags)):
