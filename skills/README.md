@@ -30,7 +30,7 @@
 | 依赖 | 用途 | 是否必需 |
 |---|---|---|
 | Python 3.12 | 运行 CLI | 必需 |
-| `requirements.txt` | `genanki`、`python-docx` 等 | 必需 |
+| `requirements.txt` | `genanki`、`python-docx`、`lxml` 等 | 必需 |
 | `requirements-render.txt` | PyMuPDF，PDF ingest/截图/裁图 | 处理 PDF 时必需 |
 | 本仓库 checkout | `ankicards` 包与数据布局 | 必需 |
 | `data/Android/`、`data/MQTT/` | 公开复现材料 | 可选 |

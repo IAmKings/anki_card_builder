@@ -224,8 +224,10 @@ python3 -m ankicards check  /tmp/web-deck --ingest .work/ingest/example_com-arti
 │   ├── build.py             #   打包（模型、媒体、lite）
 │   ├── verify.py            #   导出后结构审计
 │   ├── preview.py           #   单文件 HTML 预览
+│   ├── ingest.py            #   PDF/DOCX/TXT/HTML/URL → 可寻址文本清单
+│   ├── docx.py / txt.py / web.py  # 共享的段落/行/HTML 块提取
 │   ├── adapters.py          #   MD/DOCX/TXT/Web → 卡片数据（android-md / mqtt-md / docx-points / txt-points / web-points）
-│   └── cli.py               #   check / build / verify / preview / import
+│   └── cli.py               #   check / build / verify / preview / import / ingest
 ├── skills/anki-card-builder/# 流程与判断（agent skill）
 ├── tests/                   # 数据契约与确定性 ID 的回归测试
 ├── src/                     # 解析器与处理逻辑（供适配器复用）
@@ -239,7 +241,7 @@ python3 -m ankicards check  /tmp/web-deck --ingest .work/ingest/example_com-arti
 ### 贡献新题库
 
 - **内容型资料（手册、讲义）**：写 `cards/*.json`，跑 `check → build → verify`。
-- **结构化题库（MD/TXT）**：先让解析器产出同样的 `DeckSpec`，再复用同一个构建入口；
+- **结构化题库（MD/TXT/网页）**：先让解析器产出同样的 `DeckSpec`，再复用同一个构建入口；
   需要新增格式时加一个解析函数，而不是复制一份打包逻辑。
 - **需要真实相机/PDF 才能复现的牌组**：同时加一份合成 fixture，否则 CI 无法回归。
 - **新格式**：写一个适配器（`@register`）产出 `DeckData`，禁止再新增一个独立生成脚本。

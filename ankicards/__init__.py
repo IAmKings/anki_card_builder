@@ -18,4 +18,4 @@ __all__ = [
     "model_id",
     "stable_int",
 ]
-__version__ = "0.2.0"
+__version__ = "0.3.0"
