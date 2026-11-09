@@ -10,6 +10,10 @@
 
 前往 [Releases](../../releases) 页面，下载最新的 `Android.apkg` 或 `MQTT.apkg`。
 
+> **从 v0.3.0/v0.3.1 升级（v0.3.2 起）**：新包的模型、guid 与牌组 id 都已变化，**不能覆盖升级**。
+> 请先导出备份，在 Anki 中删除旧根牌组 `Android面试` 与 `MQTT协议`（含子牌组），再导入新包；
+> 直接覆盖会产生重复卡片。
+
 ### 2. 导入 Anki
 
 | 平台 | 说明 |
@@ -112,7 +116,7 @@ python3 -m ankicards verify output/xxx.apkg
 构建与预览对**含 pages、DOCX/TXT/WEB 定位的牌组强制要求 `--ingest`**：没有 ingest 产物就无法证明页码/段落/行号/块号真实存在，宁可拒绝也不产出假溯源。
 同时给 `--pdf`/`--docx`/`--txt`/`--html` 与 `--ingest` 时会比对 `source_sha256`；不是同一份文件直接 exit 2。URL 产物没有本地文件 sha，只做定位闸门，不再联网校验。
 
-**格式支持矩阵（v0.3）**（明确的能力边界，避免“看起来支持”）：
+**格式支持矩阵（v0.3.2）**（明确的能力边界，避免“看起来支持”）：
 
 | 输入 | 状态 | 说明 |
 |---|---|---|
@@ -205,7 +209,7 @@ python3 -m ankicards check  /tmp/web-deck --ingest .work/ingest/example_com-arti
 
 | 适配器 | 输入 | 说明 |
 |------|------|------|
-| `android-md` | MD 题库目录 | 复用 `src/parsers` + 质量过滤 + 去重；实测重建 1270 张、5 个子牌组，与已入库卡组一致 |
+| `android-md` | MD 题库目录 | 复用 `src/parsers` + 质量过滤 + 去重；重建 1270 张、5 个子牌组；guid/模型/牌组身份由 `tests/golden/public_decks.json` 校验 |
 | `mqtt-md` | MQTT 知识点 MD | 每个知识点生成一问一答 + 一道四选一；源数据在 `data/MQTT/`，可直接复现 |
 | `docx-points` | 单个 DOCX | 标题→子牌组；`1. **关键词**：解释` 段落、至少两列的表格行→问答；`source` 写 `para:N`/`table:T/rR`；自动编号（`numPr`）不读取，会提示改为手写编号；首行只有“首格+第二格都像表头”时才跳过 |
 | `txt-points` | 单个 TXT | 标题（`# 标题` / `一、标题`）→子牌组；`1. **关键词**：解释` 或 `1. 关键词：解释`→问答；`source` 写 `line:N`；只生成问答，不生成四选一 |
@@ -229,7 +233,8 @@ python3 -m ankicards check  /tmp/web-deck --ingest .work/ingest/example_com-arti
 │   ├── adapters.py          #   MD/DOCX/TXT/Web → 卡片数据（android-md / mqtt-md / docx-points / txt-points / web-points）
 │   └── cli.py               #   check / build / verify / preview / import / ingest
 ├── skills/anki-card-builder/# 流程与判断（agent skill）
-├── tests/                   # 数据契约与确定性 ID 的回归测试
+├── scripts/                 # 可复现构建与 apkg 身份比对（发布 P0）
+├── tests/                   # 数据契约、发布契约与身份回归测试
 ├── src/                     # 解析器与处理逻辑（供适配器复用）
 ├── data/Android/            # 公开题库（MD）
 ├── data/MQTT/               # 公开 MQTT 知识点（MD）
@@ -246,9 +251,27 @@ python3 -m ankicards check  /tmp/web-deck --ingest .work/ingest/example_com-arti
 - **需要真实相机/PDF 才能复现的牌组**：同时加一份合成 fixture，否则 CI 无法回归。
 - **新格式**：写一个适配器（`@register`）产出 `DeckData`，禁止再新增一个独立生成脚本。
 
+### 发布与可复现构建（v0.3.2）
+
+发布物不再直接上传仓库里某个历史时点的 `output/*.apkg`，而是由 tag 指向的源码重建：
+
+```bash
+# 重建 Android + MQTT，并用 golden 校验 guid/模型/牌组身份
+python3 scripts/build_public_decks.py --out dist --check-golden
+
+# 排查两个包为什么不兼容：打印 guid 交集、模型字段、模型/牌组 id
+python3 scripts/apkg_identity.py old.apkg new.apkg
+```
+
+- `tests/golden/public_decks.json` 固定公开牌组身份；只有**有意**改变内容/模型/牌组时才用 `--write-golden` 更新，并在提交里说明原因。
+- `.github/workflows/release.yml` 在 `v*` tag 上执行 `import → build → verify → --check-golden`，只上传 `dist/Android.apkg`、`dist/MQTT.apkg`。
+- `.github/workflows/verify.yml` 的 `public-decks` job 在每次 push/PR 重建并校验同一份 golden。
+- v0.3.2 的 P0 证据（旧包与 HEAD 重建的 0/1270、0/200 对比）见 [`docs/evidence/v0.3.2-release-identity.md`](docs/evidence/v0.3.2-release-identity.md)。
+
 ### CI/CD
 
-push master → GitHub Actions 自动上传 .apkg 到 Release。
+- push/PR → `Verify card decks`：单元测试、已入库 apkg 结构审计、公开牌组 identity 校验。
+- push `v*` tag → `Release Anki APKG`：从 tag 源码重建、校验、上传两个 apkg；不再扫描 `output/` 全量上传。
 
 ## License
 

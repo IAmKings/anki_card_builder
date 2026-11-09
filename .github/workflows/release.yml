@@ -15,16 +15,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify APKGs exist
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-render.txt
+
+      # P0：发布物必须由当前 tag 指向的源码重建，并与 golden 身份一致。
+      - name: Build public decks from source
+        run: python scripts/build_public_decks.py --out dist --check-golden
+
+      - name: Verify built APKGs
         run: |
-          APKGS=$(find output -name "*.apkg" -type f)
-          if [ -z "$APKGS" ]; then
-            echo "❌ output/ 下没有 .apkg 文件！"
-            exit 1
-          fi
-          echo "✅ 找到以下卡组："
-          for f in $APKGS; do
-            echo "  - $f ($(du -h "$f" | cut -f1))"
+          for apkg in dist/Android.apkg dist/MQTT.apkg; do
+            echo "::group::$apkg"
+            python -m ankicards verify "$apkg"
+            echo "::endgroup::"
           done
 
       - name: Upload to Release
@@ -33,21 +41,44 @@ jobs:
           name: ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
           body: |
-            ## ${{ github.ref_name }}
+            ## ${{ github.ref_name }} — 可复现构建
+
+            ### ⚠️ 升级前必须删除旧卡组
+
+            本版本的 Android/MQTT 卡组使用新的模型与 guid，与 v0.3.0/v0.3.1
+            **不兼容**。直接覆盖导入会产生**重复卡片**，请务必：
+
+            1. 先在 Anki 中导出备份；
+            2. 删除旧根牌组 `Android面试` 与 `MQTT协议`（含子牌组）；
+            3. 再导入本版本的 `.apkg`。
+
+            旧 note type 若已无卡片，可在“工具 → 管理笔记类型”中一并删除。
 
             ### 卡组列表
+
             | 卡组 | 说明 |
             |------|------|
-            | Android面试卡组 | Android 开发面试，1270 张卡片 |
-            | MQTT协议卡组 | MQTT 协议知识，200 张卡片（含 AI 选择题） |
+            | Android.apkg | Android 开发面试，1270 张卡片 |
+            | MQTT.apkg | MQTT 协议知识，200 张卡片（含 AI 选择题） |
+
+            ### 构建与校验
+
+            两个包都由当前 tag 的源码 + `data/Android`、`data/MQTT` 重建，
+            并通过 `scripts/build_public_decks.py --check-golden` 的 guid/模型/牌组身份校验。
+
+            ### 已知限制
+
+            - `--ingest` 目前只校验定位是否存在，不证明“出自同一份文档”；不要把它当作跨文档/机密材料的溯源承诺，该问题在 v0.3.3 修复。
+            - 未包含 Anki/AnkiDroid 真机导入验收；结构审计已通过，真机验收见后续版本。
 
             ### 使用方法
-            1. 下载需要的 `.apkg` 文件
-            2. 打开 Anki → 文件 → 导入 → 选择 .apkg 文件
-            3. 开始复习！
+
+            1. 下载需要的 `.apkg` 文件；
+            2. 打开 Anki → 文件 → 导入 → 选择 `.apkg` 文件；
+            3. 开始复习。
 
           files: |
-            output/Android面试卡组.apkg
-            output/MQTT协议卡组.apkg
+            dist/Android.apkg
+            dist/MQTT.apkg
           prerelease: false
           make_latest: true

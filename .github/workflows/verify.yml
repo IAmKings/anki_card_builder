@@ -34,3 +34,19 @@ jobs:
           if [ "$found" -eq 0 ]; then
             echo "output/ 下没有 .apkg，跳过结构审计"
           fi
+
+  # P0：从源码重建公开牌组，并校验 guid/模型/牌组身份没有漂移。
+  public-decks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-render.txt
+
+      - name: Rebuild public decks and check identity
+        run: python scripts/build_public_decks.py --out dist --check-golden

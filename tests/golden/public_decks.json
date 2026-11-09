@@ -1,0 +1,134 @@
+{
+  "decks": {
+    "android": {
+      "cards": 1270,
+      "deck_ids": [
+        [
+          1,
+          "Default"
+        ],
+        [
+          1711842422,
+          "Android面试::高频题集"
+        ],
+        [
+          1718118756,
+          "Android面试::Java"
+        ],
+        [
+          1740977095,
+          "Android面试::Kotlin"
+        ],
+        [
+          1765079441,
+          "Android面试::综合"
+        ],
+        [
+          1794299794,
+          "Android面试::阿里巴巴真题"
+        ]
+      ],
+      "deck_names": [
+        "Android面试::Java",
+        "Android面试::Kotlin",
+        "Android面试::综合",
+        "Android面试::阿里巴巴真题",
+        "Android面试::高频题集",
+        "Default"
+      ],
+      "guid_count": 1270,
+      "guid_sha256": "91ff8307b6e9a92e5f00f4ceba80c1d674e0e7f491d17731c1b5e8fefe90906c",
+      "model_ids": {
+        "1629099444": "Android面试 · 问答"
+      },
+      "models": {
+        "Android面试 · 问答": [
+          "Front",
+          "Back",
+          "Image",
+          "Source",
+          "PageImage"
+        ]
+      },
+      "notes": 1270
+    },
+    "mqtt": {
+      "cards": 200,
+      "deck_ids": [
+        [
+          1,
+          "Default"
+        ],
+        [
+          1705832265,
+          "MQTT协议::遗嘱消息与保留消息"
+        ],
+        [
+          1710540194,
+          "MQTT协议::流量控制与性能优化"
+        ],
+        [
+          1715558464,
+          "MQTT协议::5.0 新特性"
+        ],
+        [
+          1742397611,
+          "MQTT协议::最佳实践与工具"
+        ],
+        [
+          1743396574,
+          "MQTT协议::会话与连接管理"
+        ],
+        [
+          1758265552,
+          "MQTT协议::安全机制"
+        ],
+        [
+          1773813479,
+          "MQTT协议::QoS 服务质量等级"
+        ],
+        [
+          1773884355,
+          "MQTT协议::基础概念"
+        ],
+        [
+          1782238744,
+          "MQTT协议::主题（Topic）与通配符"
+        ],
+        [
+          1797948113,
+          "MQTT协议::MQTT-SN 与扩展协议"
+        ]
+      ],
+      "deck_names": [
+        "Default",
+        "MQTT协议::5.0 新特性",
+        "MQTT协议::MQTT-SN 与扩展协议",
+        "MQTT协议::QoS 服务质量等级",
+        "MQTT协议::主题（Topic）与通配符",
+        "MQTT协议::会话与连接管理",
+        "MQTT协议::基础概念",
+        "MQTT协议::安全机制",
+        "MQTT协议::最佳实践与工具",
+        "MQTT协议::流量控制与性能优化",
+        "MQTT协议::遗嘱消息与保留消息"
+      ],
+      "guid_count": 200,
+      "guid_sha256": "f2c6233034427a5f9f6d2e737cd5c0a9414d1f8e1d4762551c753161999fc4af",
+      "model_ids": {
+        "1658860862": "MQTT协议 · 问答"
+      },
+      "models": {
+        "MQTT协议 · 问答": [
+          "Front",
+          "Back",
+          "Image",
+          "Source",
+          "PageImage"
+        ]
+      },
+      "notes": 200
+    }
+  },
+  "schema": 1
+}
