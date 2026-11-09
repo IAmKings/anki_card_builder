@@ -21,6 +21,7 @@ from .docx import iter_docx_blocks
 from .errors import CardError
 from .txt import iter_txt_lines
 from .schema import load_json
+from .web import WebError, iter_html_blocks
 
 DEFAULT_MAX_PAGES = 2000
 DEFAULT_MAX_BLOCKS = 5000
@@ -30,6 +31,7 @@ MAX_TXT_BYTES = 10 * 1024 * 1024
 EMPTY_LINE_RATIO_LIMIT = 0.5
 MAX_DOCX_BYTES = 20 * 1024 * 1024
 MAX_DOCX_UNCOMPRESSED_BYTES = 200 * 1024 * 1024
+MAX_WEB_BYTES = 5 * 1024 * 1024
 EMPTY_PAGE_RATIO_LIMIT = 0.2   # 超过即给 warning
 EMPTY_FAIL_RATIO = 0.5         # 达到即拒绝
 
@@ -366,14 +368,76 @@ def ingest_txt(txt_path: str | Path, out: str | Path | None = None,
     return IngestResult(manifest=manifest, out_path=out_path)
 
 
+
+def ingest_html(html_path: str | Path, out: str | Path | None = None,
+                max_blocks: int = DEFAULT_MAX_BLOCKS,
+                max_bytes: int | None = None,
+                repo_root: Path | None = None) -> IngestResult:
+    """把本地 .html/.htm 的可见块抽成 block:N 清单（不执行 JS）。"""
+    path = Path(html_path).expanduser().resolve()
+    if not path.exists():
+        raise IngestError(f"找不到文件: {path}")
+    if not path.is_file():
+        raise IngestError(f"不是文件: {path}")
+    suffix = path.suffix.lower()
+    if suffix not in (".html", ".htm"):
+        raise IngestError(f"只支持 .html/.htm；{suffix or '(无扩展名)'} 不是网页文件")
+    limit = MAX_WEB_BYTES if max_bytes is None else max_bytes
+    try:
+        size = path.stat().st_size
+    except OSError as exc:
+        raise IngestError(f"无法读取 HTML: {exc}") from exc
+    if size > limit:
+        raise IngestError(
+            f"HTML 文件约 {size // 1024} KB，超过 {limit // 1024} KB 上限；请精简页面。")
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise IngestError(f"无法读取 HTML: {exc}") from exc
+    sha = hashlib.sha256(raw).hexdigest()
+    try:
+        blocks = list(iter_html_blocks(raw, max_blocks=max_blocks))
+    except WebError as exc:
+        raise IngestError(str(exc)) from exc
+    if not blocks:
+        raise IngestError("没有可提取文本：HTML 里没有标题/段落/列表/表格文本。")
+    units = [{
+        "id": block.locator,
+        "locator": block.locator,
+        "kind": block.kind,
+        "chars": len(block.text),
+        "text": block.text,
+    } for block in blocks]
+    total_chars = sum(unit["chars"] for unit in units)
+    if total_chars == 0:
+        raise IngestError("没有可提取文本：HTML 里的可见块都是空白。")
+    manifest = {
+        "format": "web",
+        "source": path.name,
+        "source_sha256": sha,
+        "unit_kind": "block",
+        "unit_count": len(units),
+        "total_chars": total_chars,
+        "warnings": [],
+        "units": units,
+    }
+    out_path = Path(out).expanduser().resolve() if out else _default_out(path, sha)
+    _check_out_path(out_path, repo_root=repo_root)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(manifest, ensure_ascii=False, indent=1, sort_keys=True) + "\n"
+    out_path.write_text(payload, encoding="utf-8")
+    return IngestResult(manifest=manifest, out_path=out_path)
+
+
 def ingest(source: str | Path, out: str | Path | None = None,
            max_pages: int = DEFAULT_MAX_PAGES,
            max_blocks: int = DEFAULT_MAX_BLOCKS,
            max_lines: int = DEFAULT_MAX_LINES,
            encoding: str = DEFAULT_TXT_ENCODING,
+           max_bytes: int | None = None,
            allow_repaired: bool = False,
            repo_root: Path | None = None) -> IngestResult:
-    """按扩展名分派：.pdf → ingest_pdf，.docx → ingest_docx，.txt → ingest_txt。"""
+    """按扩展名分派：.pdf / .docx / .txt / .html / .htm。"""
     path = Path(source).expanduser().resolve()
     suffix = path.suffix.lower()
     if suffix == ".pdf":
@@ -384,6 +448,9 @@ def ingest(source: str | Path, out: str | Path | None = None,
     if suffix == ".txt":
         return ingest_txt(path, out=out, max_lines=max_lines, encoding=encoding,
                           repo_root=repo_root)
+    if suffix in (".html", ".htm"):
+        return ingest_html(path, out=out, max_blocks=max_blocks, max_bytes=max_bytes,
+                           repo_root=repo_root)
     if suffix in (".doc", ".docm"):
         raise IngestError(f"只支持 .docx；{suffix} 请先另存为 .docx")
     if suffix in (".md", ".markdown"):
@@ -406,8 +473,8 @@ def load_ingest(path: str | Path) -> IngestData:
     if sha is not None and not isinstance(sha, str):
         raise IngestError(f"{path}: source_sha256 必须是字符串")
     fmt = data.get("format")
-    if fmt not in (None, "pdf", "docx", "txt"):
-        raise IngestError(f"{path}: format 必须是 pdf/docx/txt，实际为 {fmt!r}")
+    if fmt not in (None, "pdf", "docx", "txt", "web"):
+        raise IngestError(f"{path}: format 必须是 pdf/docx/txt/web，实际为 {fmt!r}")
     if fmt is None:
         first = units[0] if units else None
         if isinstance(first, dict) and "locator" in first:
@@ -431,6 +498,21 @@ def load_ingest(path: str | Path) -> IngestData:
         if not locators:
             raise IngestError(f"{path} 里没有任何段落/表格行")
         return IngestData(pages={}, source_sha256=sha, format="docx", locators=locators)
+
+    if fmt == "web":
+        locators: dict[str, str] = {}
+        for unit in units:
+            if not isinstance(unit, dict):
+                raise IngestError(f"{path}: units 必须是对象数组")
+            locator = unit.get("locator") or unit.get("id")
+            if not isinstance(locator, str) or not locator:
+                raise IngestError(f"{path}: WEB unit 缺少 locator")
+            if locator in locators:
+                raise IngestError(f"{path}: WEB locator 重复: {locator}")
+            locators[locator] = str(unit.get("text", ""))
+        if not locators:
+            raise IngestError(f"{path} 里没有任何网页文本块")
+        return IngestData(pages={}, source_sha256=sha, format="web", locators=locators)
 
     if fmt == "txt":
         locators: dict[str, str] = {}
@@ -466,6 +548,7 @@ def main_cli(args) -> int:
                         max_blocks=getattr(args, "max_blocks", DEFAULT_MAX_BLOCKS),
                         max_lines=getattr(args, "max_lines", DEFAULT_MAX_LINES),
                         encoding=getattr(args, "encoding", DEFAULT_TXT_ENCODING),
+                        max_bytes=getattr(args, "max_bytes", None),
                         allow_repaired=getattr(args, "allow_repaired", False))
     except IngestError as exc:
         print(f"✗ {exc}", file=sys.stderr)
@@ -478,6 +561,9 @@ def main_cli(args) -> int:
     elif manifest["format"] == "txt":
         print(f"  {manifest['unit_count']} 行 / {manifest['total_chars']} 字 / "
               f"空行 {len(manifest['empty_lines'])} / sha256 {manifest['source_sha256'][:12]}…")
+    elif manifest["format"] == "web":
+        print(f"  {manifest['unit_count']} 块 / {manifest['total_chars']} 字 / "
+              f"sha256 {manifest['source_sha256'][:12]}…")
     else:
         print(f"  {manifest['unit_count']} 页 / {manifest['total_chars']} 字 / "
               f"空页 {len(manifest['empty_pages'])} / sha256 {manifest['source_sha256'][:12]}…")

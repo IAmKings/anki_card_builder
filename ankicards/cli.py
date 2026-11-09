@@ -296,6 +296,8 @@ def main(argv: list[str] | None = None) -> int:
                           help=f"TXT 行数上限（默认 {DEFAULT_MAX_LINES}）")
     p_ingest.add_argument("--encoding", default=DEFAULT_TXT_ENCODING,
                           help=f"TXT 编码（默认 {DEFAULT_TXT_ENCODING}）")
+    p_ingest.add_argument("--max-bytes", type=int, default=None,
+                          help="HTML 文件大小上限（字节；默认 5 MB）")
     p_ingest.add_argument("--allow-repaired", action="store_true",
                           help="接受被引擎修复过的损坏 PDF（默认拒绝）")
     p_ingest.set_defaults(func=cmd_ingest)
