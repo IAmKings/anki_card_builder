@@ -15,13 +15,17 @@ import re
 import sys
 import zipfile
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 from .docx import iter_docx_blocks
 from .errors import CardError
 from .txt import iter_txt_lines
 from .schema import load_json
-from .web import WebError, iter_html_blocks
+from .web import (
+    DEFAULT_WEB_TIMEOUT, WebError, fetch_html, iter_html_blocks,
+)
 
 DEFAULT_MAX_PAGES = 2000
 DEFAULT_MAX_BLOCKS = 5000
@@ -429,16 +433,83 @@ def ingest_html(html_path: str | Path, out: str | Path | None = None,
     return IngestResult(manifest=manifest, out_path=out_path)
 
 
+
+def _default_out_url(url: str, sha: str) -> Path:
+    parsed = urlparse(url)
+    host = re.sub(r"[^\w\-]+", "_", parsed.netloc)[:30] or "web"
+    stem = re.sub(r"[^\w\-]+", "_", Path(parsed.path).stem)[:30] or "index"
+    return Path.cwd() / ".work" / "ingest" / f"{host}-{stem}-{sha[:8]}.json"
+
+
+def ingest_url(url: str, out: str | Path | None = None,
+               max_blocks: int = DEFAULT_MAX_BLOCKS,
+               max_bytes: int | None = None,
+               timeout: float = DEFAULT_WEB_TIMEOUT,
+               allow_private_network: bool = False,
+               repo_root: Path | None = None) -> IngestResult:
+    """抓取单个静态 HTML URL，抽成 block:N 清单；不执行 JS、不跟随外部资源。"""
+    try:
+        fetched = fetch_html(url, timeout=timeout, max_bytes=max_bytes,
+                             allow_private_network=allow_private_network)
+    except WebError as exc:
+        raise IngestError(str(exc)) from exc
+    try:
+        blocks = list(iter_html_blocks(fetched.content, max_blocks=max_blocks,
+                                          encoding=fetched.charset or "utf-8"))
+    except WebError as exc:
+        raise IngestError(str(exc)) from exc
+    if not blocks:
+        raise IngestError("没有可提取文本：URL 里没有标题/段落/列表/表格文本。")
+    units = [{
+        "id": block.locator,
+        "locator": block.locator,
+        "kind": block.kind,
+        "chars": len(block.text),
+        "text": block.text,
+    } for block in blocks]
+    total_chars = sum(unit["chars"] for unit in units)
+    if total_chars == 0:
+        raise IngestError("没有可提取文本：URL 里的可见块都是空白。")
+    content_sha = hashlib.sha256(fetched.content).hexdigest()
+    manifest = {
+        "format": "web",
+        "source": url,
+        "final_url": fetched.final_url,
+        "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "content_type": fetched.content_type,
+        "content_sha256": content_sha,
+        "source_sha256": None,
+        "unit_kind": "block",
+        "unit_count": len(units),
+        "total_chars": total_chars,
+        "warnings": [],
+        "units": units,
+    }
+    out_path = Path(out).expanduser().resolve() if out else _default_out_url(url, content_sha)
+    _check_out_path(out_path, repo_root=repo_root)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(manifest, ensure_ascii=False, indent=1, sort_keys=True) + "\n"
+    out_path.write_text(payload, encoding="utf-8")
+    return IngestResult(manifest=manifest, out_path=out_path)
+
+
 def ingest(source: str | Path, out: str | Path | None = None,
            max_pages: int = DEFAULT_MAX_PAGES,
            max_blocks: int = DEFAULT_MAX_BLOCKS,
            max_lines: int = DEFAULT_MAX_LINES,
            encoding: str = DEFAULT_TXT_ENCODING,
            max_bytes: int | None = None,
+           timeout: float = DEFAULT_WEB_TIMEOUT,
+           allow_private_network: bool = False,
            allow_repaired: bool = False,
            repo_root: Path | None = None) -> IngestResult:
-    """按扩展名分派：.pdf / .docx / .txt / .html / .htm。"""
-    path = Path(source).expanduser().resolve()
+    """按扩展名分派：.pdf / .docx / .txt / .html / .htm，或抓取 http(s) URL。"""
+    raw = str(source).strip()
+    if raw.startswith(("http://", "https://")):
+        return ingest_url(raw, out=out, max_blocks=max_blocks, max_bytes=max_bytes,
+                          timeout=timeout, allow_private_network=allow_private_network,
+                          repo_root=repo_root)
+    path = Path(raw).expanduser().resolve()
     suffix = path.suffix.lower()
     if suffix == ".pdf":
         return ingest_pdf(path, out=out, max_pages=max_pages,
@@ -549,6 +620,8 @@ def main_cli(args) -> int:
                         max_lines=getattr(args, "max_lines", DEFAULT_MAX_LINES),
                         encoding=getattr(args, "encoding", DEFAULT_TXT_ENCODING),
                         max_bytes=getattr(args, "max_bytes", None),
+                        timeout=getattr(args, "timeout", DEFAULT_WEB_TIMEOUT),
+                        allow_private_network=getattr(args, "allow_private_network", False),
                         allow_repaired=getattr(args, "allow_repaired", False))
     except IngestError as exc:
         print(f"✗ {exc}", file=sys.stderr)
@@ -562,8 +635,11 @@ def main_cli(args) -> int:
         print(f"  {manifest['unit_count']} 行 / {manifest['total_chars']} 字 / "
               f"空行 {len(manifest['empty_lines'])} / sha256 {manifest['source_sha256'][:12]}…")
     elif manifest["format"] == "web":
+        sha = manifest.get("content_sha256") or manifest.get("source_sha256") or ""
         print(f"  {manifest['unit_count']} 块 / {manifest['total_chars']} 字 / "
-              f"sha256 {manifest['source_sha256'][:12]}…")
+              f"sha256 {sha[:12]}…")
+        if manifest.get("final_url") and manifest["final_url"] != manifest["source"]:
+            print(f"  最终地址：{manifest['final_url']}")
     else:
         print(f"  {manifest['unit_count']} 页 / {manifest['total_chars']} 字 / "
               f"空页 {len(manifest['empty_pages'])} / sha256 {manifest['source_sha256'][:12]}…")
