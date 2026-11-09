@@ -41,6 +41,8 @@ PAGES_ALLOWED = {"pdf", "unknown"}
 CARD_FIELDS = {"type", "q", "a", "text", "extra", "pages", "source", "tags", "img"}
 # DOCX 的 source 定位：body 内第 N 段，或第 T 个表格的第 R 行。
 DOCX_LOCATOR_RE = re.compile(r"^(?:para:[1-9]\d*|table:[1-9]\d*/r[1-9]\d*)$")
+# TXT 的 source 定位：splitlines() 的物理行号（1 基，空行也计数）。
+TXT_LOCATOR_RE = re.compile(r"^line:[1-9]\d*$")
 
 
 
@@ -81,6 +83,11 @@ class DeckSpec:
     @property
     def has_docx_locators(self) -> bool:
         return any(DOCX_LOCATOR_RE.fullmatch(str(card.get("source", "")).strip())
+                   for _, _, card in self.iter_cards())
+
+    @property
+    def has_txt_locators(self) -> bool:
+        return any(TXT_LOCATOR_RE.fullmatch(str(card.get("source", "")).strip())
                    for _, _, card in self.iter_cards())
 
     def iter_cards(self):
@@ -198,8 +205,8 @@ def validate(spec: DeckSpec, page_count: int | None = None,
     用于按“被裁的那一页”判断裁图是否越界（不同页尺寸可以不同）。
     ingest：ingest 产物（page -> 文本）。传入时启用**溯源闸门**：
             卡片引用的每一页都必须存在且该页文本非空。
-    locators：DOCX ingest 产物（para:N / table:T/rR -> 文本）。传入时启用
-            **DOCX 定位闸门**：source 必须存在且文本非空。
+    locators：DOCX/TXT ingest 产物（para:N / table:T/rR / line:N -> 文本）。
+            传入时启用对应定位闸门：source 必须存在且文本非空。
     """
     rep = Report()
     seen_sections: dict[str, str] = {}
@@ -218,6 +225,11 @@ def validate(spec: DeckSpec, page_count: int | None = None,
         rep.add_warning(
             "deck.json",
             "检测到 DOCX 定位，但 deck.json 未把 source_kind 设为 docx；"
+            "构建/预览仍会要求 --ingest")
+    if kind == "unknown" and spec.has_txt_locators:
+        rep.add_warning(
+            "deck.json",
+            "检测到 TXT 定位，但 deck.json 未把 source_kind 设为 txt；"
             "构建/预览仍会要求 --ingest")
 
     pages_without_text: list[int] = []
@@ -295,6 +307,19 @@ def validate(spec: DeckSpec, page_count: int | None = None,
                         rep.add_error(where, f"定位 {source} 不在 ingest 产物中")
                     elif not (locators[source] or "").strip():
                         rep.add_error(where, f"定位 {source} 在 ingest 产物中没有文本（可能是空段落/空行）")
+
+            is_txt_locator = bool(TXT_LOCATOR_RE.fullmatch(source))
+            if kind == "txt" or (kind == "unknown" and is_txt_locator):
+                if not source:
+                    rep.add_error(where, "source_kind=txt 时 source 必填（line:N）")
+                elif not is_txt_locator:
+                    rep.add_error(
+                        where, f"TXT 定位格式非法: {source!r}（应为 line:N）")
+                elif locators is not None:
+                    if source not in locators:
+                        rep.add_error(where, f"定位 {source} 不在 ingest 产物中")
+                    elif not (locators[source] or "").strip():
+                        rep.add_error(where, f"定位 {source} 在 ingest 产物中没有文本（可能是空行）")
 
             tags = card.get("tags", [])
             if tags and not (isinstance(tags, list) and all(isinstance(t, str) for t in tags)):
