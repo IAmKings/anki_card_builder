@@ -1,115 +1,187 @@
 ---
 name: anki-card-builder
-description: 把一份学习资料（PDF 手册/幻灯片、DOCX、Markdown 题库、TXT）做成可分发的 Anki 卡组（.apkg）。当用户说"把这份资料做成 Anki 卡片/卡组/背诵卡"、"重新打包卡组"、"卡组导入失败要排查"时使用。覆盖选路径、卡片数据契约、图片题裁图、构建、导出后结构审计、机密材料处理。
+description: 从文本型 PDF、DOCX 或结构化 Markdown 题库构建并校验可直接导入 Anki 的 .apkg 卡组。当用户要求把学习资料做成 Anki 卡片/卡组、重打包已有卡组，或排查 .apkg 导入/重复卡问题时使用；不适用于扫描件 OCR、网页抓取，或没有适配器的 TXT 自动抽卡。
 ---
 
 # Anki 卡组构建
 
+## 这个 skill 做什么
+
+把一份学习资料变成可导入 Anki/AnkiDroid 的 `.apkg`，并在交付前验证结构。
+
+核心链路只有一条：
+
+```
+资料 → 可寻址文本/结构化数据 → <deck>/cards/*.json → build → verify → 真机导入
+```
+
+PDF/DOCX/MD 只是入口不同，最后都汇入同一个 `DeckSpec` 和同一个构建入口。不要为一份新资料另写一个生成脚本。
+
 ## 何时用
 
-- 用户给出文档（PDF、DOCX、MD、TXT、网页），要求生成 Anki 卡组 / 背诵卡 / `.apkg`
-- 已有卡组要改卡片、重打包、排查导入问题
+- 用户给出文档（文本型 PDF、DOCX、结构化 Markdown 题库），要求生成 Anki 卡片/卡组/背诵卡。
+- 已有 `cards/*.json` 卡组，要改卡片、重新打包、生成预览。
+- `.apkg` 导入失败、重复卡、重复牌组、媒体缺失，需要定位。
+- 需要把资料里的页码/段落/表格行做成可对账的 `source` 或页面截图。
 
-## 三条硬规则
+## 何时不用
 
-1. **数据先进 JSON，再出包**。卡片内容写进 `<deck>/cards/*.json`，不要为一份新文档写一个新脚本。
-2. **错了会静默产出坏包的事交给代码**：`check`（数据契约）、`build`（打包与媒体）、`verify`（导出后结构）。
-3. **需要判断的事留给人**：怎么读新格式、图里裁哪里、事实对不对、能不能公开——这些代码判断不了，也不要假装能。
+- 扫描版 PDF：没有文本层，本工具不做 OCR；直接说明无法处理。
+- 加密 PDF/DOCX：先让用户解密，本工具不破解。
+- 任意网页：没有 URL ingest；先保存为 Markdown，再按 Markdown 题库处理。
+- 没有适配器的 TXT：先确认格式并新增适配器，不要承诺“自动抽卡”。
+- 事实校对、内容取舍、能不能公开：这些是人的判断，代码只保证结构。
 
-## 快速开始
+## 前置条件
+
+1. 需要本仓库的 checkout；`ankicards` 包不在 skill 目录里，skill 不能独立运行。
+2. Python 3.12。
+3. 安装核心依赖：
+
+   ```bash
+   python3 -m pip install -r requirements.txt
+   ```
+
+4. 需要 PDF 页面截图/裁图时，再安装渲染依赖：
+
+   ```bash
+   python3 -m pip install -r requirements-render.txt   # PyMuPDF
+   ```
+
+5. 所有命令从仓库根目录运行；若 agent 的工作目录不同，先 `cd` 到仓库根目录，或把仓库根加入 `PYTHONPATH`。
+6. 公开复现材料在 `data/Android/`、`data/MQTT/`；非公开材料只放本地目录并加入本机忽略规则，不提交、不发布。
+
+## 先选路径
+
+| 输入 | 路径 | 关键命令 |
+|---|---|---|
+| 文本型 PDF 手册/讲义 | `ingest` 出逐页文本 → 人或 agent 写 cards → 构建时带 `--pdf`/`--ingest` | `ingest` → `check` → `build` |
+| DOCX（标题 + 编号点/表格） | `ingest` 出定位 → `import --adapter docx-points` 或手写 cards | `ingest` → `import` → `check` → `build` |
+| 结构化 Markdown 题库 | `import --adapter android-md` 或 `mqtt-md` | `import` → `check` → `build` |
+| 已有 cards JSON | 直接校验/重打包 | `check` → `build` → `verify` |
+| 图片题 | `crops.json` 定裁图框，构建必须给 `--pdf` | `check/build --pdf --ingest` |
+
+没有通用 TXT 适配器；`import --list` 是适配器列表的唯一真值。
+
+## 工作流
+
+### 1. 确认输入与目标
+
+确认源文件存在、格式属于上表哪一行、目标 deck 目录在哪里、是否需要图片题。
+
+**完成标准**：能明确说出输入类型、源文件路径、目标 deck 目录、是否需要 `--pdf`/`--docx`/`--ingest`。
+
+### 2. 产出可寻址文本或结构化卡片
+
+- PDF：`python3 -m ankicards ingest <手册.pdf>`；默认写 `.work/ingest/<名字>-<sha8>.json`。
+- DOCX：`python3 -m ankicards ingest <笔记.docx>`；得到 `para:N` / `table:T/rR`。
+- 结构化 MD：直接 `import --adapter`，不要先 ingest。
+
+**完成标准**：文本/定位清单已生成；`check` 能读到 `<deck>/cards/*.json`。
+
+### 3. 写卡片或导入卡片
+
+- 手写：卡片写进 `<deck>/cards/*.json`，一卡一问。
+- PDF 用 `pages`；非 PDF 用 `source`；`source_kind=docx` 时 `source` 必须是 `para:N` 或 `table:T/rR`，并与 ingest 对齐。
+- 图片题先在 `crops.json` 写 `page` + `rect`。
+
+**完成标准**：没有未知字段；qa/image 的 q/a 齐全；每条溯源都能被 `check --ingest` 接受。
+
+### 4. 裁图自检（仅图片题）
+
+把所有裁图拼成一张 contact sheet 目视检查。裁框宁可窄不可宽；一张图里出现两个款式会直接产生错误答案。
+
+**完成标准**：全部裁图过目，框内只有目标对象，没有相邻款式/文字。
+
+### 5. check → build → verify → 真机导入
 
 ```bash
-python3 -m ankicards ingest <手册.pdf|笔记.docx>   # 逐页/逐段文本，默认写 .work/ingest/
-python3 -m ankicards check  <deck目录> [--pdf 手册.pdf|--docx 笔记.docx] [--ingest .work/ingest/xxx.json]
-python3 -m ankicards build  <deck目录> --out output/xxx.apkg --ingest .work/ingest/xxx.json \
-                            [--pdf 手册.pdf|--docx 笔记.docx] [--lite]
-python3 -m ankicards preview <deck目录> --out x.html --ingest .work/ingest/xxx.json [--pdf 手册.pdf|--docx 笔记.docx]
+python3 -m ankicards check  <deck> [--pdf 手册.pdf|--docx 笔记.docx] [--ingest .work/ingest/xxx.json]
+python3 -m ankicards build  <deck> --out output/xxx.apkg [--pdf 手册.pdf|--docx 笔记.docx] \
+                            [--ingest .work/ingest/xxx.json] [--lite] [--preview preview.html]
 python3 -m ankicards verify output/xxx.apkg
 ```
 
-- `ingest`：文本型 PDF 逐页、DOCX 逐段/逐表格行；加密/扫描件/损坏会 exit 2，损坏但可修复的 PDF
-  默认也拒绝（`--allow-repaired` 显式放行）；不做 OCR。MD/TXT 请走 `import --adapter`。
-  DOCX 默认上限 20 MB / 解压后 200 MB / 5000 块（`--max-blocks` 放宽），忽略页眉页脚、图片、批注；
-  不读取 Word 自动编号（`numPr`），需手写编号或把编号粘贴为文本。
-- `check`：只读数据；给了 `--pdf` 才检查页码上界与裁图越界；给了 `--ingest` 则启用**溯源闸门**——
-  PDF 卡片引用的每一页、DOCX 卡片引用的每个 `para:N`/`table:T/rR` 都必须出现在 ingest 产物里且有文本。
-- `build`：有图片题时**必须**给 `--pdf`（裁图要用源文件）；DOCX 牌组只做同源校验，不需要 `--pdf`。
-- `verify`：把 `.apkg` 解开做结构审计，不需要源数据，可对任何牌组使用。
+**完成标准**：`check` 0 error；`build` 成功；`verify` 0 error；Anki/AnkiDroid 导入一次，媒体 `Missing files: 0`。
 
-## 牌组目录
+### 6. 事实校对与记录
+
+按页/按段抽查事实，记录校对基于哪一版数据（内容 hash 或 git commit）。没有这个记录，改一张卡就要整份重来。
+
+**完成标准**：抽查记录可复述；校对基准已写入交付说明。
+
+## 命令参考
+
+| 命令 | 用途 | 备注 |
+|---|---|---|
+| `python3 -m ankicards ingest <pdf|docx>` | 生成逐页/逐段文本清单 | PDF 仅文本型；DOCX 上限 20 MB / 解压后 200 MB / 5000 块 |
+| `python3 -m ankicards import --list` | 列出适配器 | 当前：`android-md`、`mqtt-md`、`docx-points` |
+| `python3 -m ankicards import <src> --adapter <name> --out <deck>` | 源格式 → cards JSON | 已有卡片时需 `--force` 才覆盖 |
+| `python3 -m ankicards check <deck>` | 数据契约校验 | 加 `--pdf` 查页码/裁图；加 `--ingest` 开溯源闸门 |
+| `python3 -m ankicards build <deck> --out x.apkg` | 构建 apkg | 有图片题必须 `--pdf`；引用 pages/docx 定位必须 `--ingest` |
+| `python3 -m ankicards preview <deck> --out x.html` | 单文件 HTML 预览 | 与 build 相同的闸门 |
+| `python3 -m ankicards verify x.apkg` | 解包做结构审计 | 不需要源数据；`--json` 输出机器可读结果 |
+
+**退出码**：
+
+- `0` 成功。
+- `1` 数据/闸门失败（schema 错误、未过 `--ingest`、verify 结构错误）。
+- `2` 用法/环境错误（缺必填参数、坏 JSON、PDF/DOCX 不可读或加密、有图片题却缺 `--pdf`、apkg 不是 zip）。
+
+`check`/`verify` 全绿只证明结构正确，不证明事实正确。
+
+## 牌组目录与契约
 
 ```
 <deck>/
   deck.json        # 可选：{"name": "顶层牌组名", "source_kind": "pdf"}
   cards/*.json     # 必需：{"deck": "子牌组名", "cards": [...]}
-  crops.json       # 可选：图片题的裁图区域
+  crops.json       # 可选：图片题的 page + rect
 ```
 
-**字段契约以 `ankicards/schema.py` 为唯一真值**，这里不复制字段表——复制一遍就一定会漂移。
-新增字段先改代码与测试，再写进文档。
+字段定义以 `ankicards/schema.py` 为唯一真值；这里不复制字段表，避免文档与代码漂移。新增字段先改代码与测试，再写文档。
 
-## 工作流
+定位语义：
 
-1. **读文档，选路径**：手册/讲义这类"内容要人来提炼"的，先 `ingest` 出可寻址文本，再写 `cards/*.json`；已经是结构化题库（MD/TXT）的，先让 parser 产出同样的 `DeckSpec`；DOCX 若已是"标题 + 编号点/表格"结构，可直接 `import --adapter docx-points`。所有路最后汇入同一个构建入口。
-2. **写卡片**：一卡一问。定位分两种：PDF 用 `pages`（背面截图、可被 ingest 对账）；非 PDF 用 `source`；`source_kind=docx` 时 `source` 必须写 `para:N`（body 内第 N 段，空段落也计数）或 `table:T/rR`（第 T 表第 R 行），且与 ingest 产物对齐。两者可并存，`source` 不会被丢掉。图片题先在 `crops.json` 里定 rect。
-3. **裁图自检**：把所有裁图拼成一张 contact sheet 目视确认——框里只能有目标对象，一张图里出现两个款式会直接产生错误答案。
-4. **check → build → verify → 真机导入一次**（Anki 桌面或 AnkiDroid）。
-5. **事实校对**：按页抽查，记录校对基于哪一版数据（内容 hash 或 git commit），否则改一张卡就要整份重来。
+- `pages` 只表示 PDF 页码；`source_kind=md/txt/docx/image` 时写 `pages` 会报错；`unknown` 兼容放行但会给 warning。
+- `source` 用于非 PDF 溯源；`source_kind=docx` 时必须匹配 `para:N` 或 `table:T/rR`，且能在 ingest 产物中找到、文本非空。
+- `pages` 和 `source` 可以并存：前者出截图，后者给段落级定位。
 
-## 能力边界（不要承诺超出这里的）
+## 依赖与相关文件
 
-| 输入 | 行为 |
-|---|---|
-| 文本型 PDF | `ingest` 出逐页文本，可写卡、可出页面截图 |
-| 扫描版 PDF | exit 2：无文本层，本工具无 OCR |
-| 加密 PDF | exit 2：请先解密 |
-| 可修复的损坏 PDF | 默认 exit 2；`--allow-repaired` 放行并警告 |
-| DOCX | `ingest` 出 `para:N`/`table:T/rR` 文本；`import --adapter docx-points` 可直接生成卡片；忽略页眉页脚/图片/批注，无 OCR |
-| MD/TXT | 走 `import --adapter`，没有“自动抽卡” |
-
-**ingest 只产出文本，不产出卡片。** 卡片仍由人或 agent 依据文本撰写；“PDF → 卡组”这句话只在
-“ingest + 写卡 + build”整条流程里成立。
-
-**构建与预览同样强制闸门**：牌组一旦引用 `pages` 或 `source_kind=docx`，`build`/`preview` 没有 `--ingest` 会直接拒绝
-（exit 1，属数据/闸门失败），避免绕过检查产出假溯源。只有 source-only 的牌组可以不带 ingest 构建。
-
-**退出码**：`0` 成功；`1` 数据/闸门失败（schema 错误、未过 `--ingest`、verify 结构错误）；
-`2` 用法或环境错误（缺必填参数、坏 JSON、PDF 不可读/加密、有图片题却缺 `--pdf`、apkg 不是 zip）。
-缺 `--ingest` 与缺 `--pdf` 是两类：前者是闸门（1），后者是用法（2）。
-
-## 溯源闸门
-
-`check --ingest <json>` 会拒绝这些假溯源：PDF 页码不存在、页码存在但该页无文本、非 PDF 来源写 `pages`、DOCX 定位格式非法/不存在/文本为空。
-未知卡片字段直接报错（白名单）。请把这条命令当作交付前的必跑项——`check`/`verify` 全绿只证明结构正确，
-不证明事实正确。
-
-## 图片题
-
-- `rect` 是页面绝对坐标（pt），先粗后细；改完 rect 不需要清缓存——构建产物在临时目录，不存在"旧图复用"。
-- 裁框宁可窄不可宽：宽了会把相邻款式带进来。
-- 一次目视全部裁图，不要逐张点开。
-
-## 数据与发布
-
-- 公开资料放 `data/Android/` 之类可入库的目录，方便别人复现你的构建。
-- 内部手册等非公开材料放在本地私有目录，并加入本机 `.git/info/exclude`（或本地忽略规则）；**只在本机构建，不入库、不发布**。
-- 含内页截图的 `.apkg` 和预览 HTML 同样按机密处理。
+- `ankicards/`：CLI 与校验/构建逻辑，skill 的外部依赖。
+- `requirements.txt`：`genanki`、`python-docx` 等核心依赖。
+- `requirements-render.txt`：PyMuPDF，仅 PDF 截图/裁图需要。
+- `ankicards/schema.py`：卡片字段与定位契约的唯一真值。
+- `README.md`：安装、工具链与数据说明。
+- `skills/README.md`：skill 安装与运行目录说明。
+- 没有其他 skill 依赖本 skill；安装说明见 `skills/README.md`。
 
 ## 常见坑
 
 | 现象 | 原因 / 处理 |
 |---|---|
-| AnkiDroid 报"不是有效的卡组文件" | 微信/QQ 把 `.apkg` 改名成 `apk.1`，改回 `.apkg` |
-| 重建后 Anki 里出现重复卡 | 身份规则变了：guid 由 `identity_seed` 决定，改算法等于新卡；不要改已发布的身份规则 |
-| 重新导入后出现重复牌组 | deck ID 不稳定；本工具链用确定性 ID（`ankicards/ids.py`），**不要改已发布牌组的名字** |
+| AnkiDroid 报“不是有效的卡组文件” | 微信/QQ 把 `.apkg` 改名成 `apk.1`，改回 `.apkg` |
+| 重建后 Anki 里出现重复卡 | 身份规则变了：guid 由 `identity_seed` 决定；不要改已发布牌组的身份规则 |
+| 重新导入后出现重复牌组 | deck ID 不稳定；本工具链用确定性 ID，不要改已发布牌组的名字 |
 | 构建报 `Tag contains a space` | Anki 标签不能含空格；构建器会自动把空格换成 `_` |
 | 没有 PDF 时构建失败 | 牌组含图片题；提供 `--pdf`，或先移除图片题 |
-| `verify` 报父卡组缺失 | 这是 warning：Anki 导入时会自动创建父卡组 |
-| `verify` 报 markdown 转义残留 | 字段里有 `\<`、`\>` 之类未转义的残留，建议修数据 |
+| DOCX 一张卡都没解析出来 | Word 自动编号不在段落文本里；改为手写 `1. **关键词**：解释` 或粘贴编号 |
+| DOCX 被拒绝 | 压缩包 >20 MB、解压后 >200 MB、>5000 块，或文件损坏/加密 |
+| `unknown` 牌组带 `para:N` 却过不了 build | 声明 `source_kind=docx` 并提供 `--ingest`；unknown 不再绕过定位闸门 |
+| `verify` 报父卡组缺失 | warning：Anki 导入时会自动创建父卡组 |
+| `verify` 报 markdown 转义残留 | 字段里有 `\<`、`\>` 之类未转义残留，修数据 |
 
 ## 交付前验收
 
-- `check` 0 error，且每条 warning 都能解释
-- `build` 成功，`verify` 0 error
-- 真机/Anki 后端导入一次：媒体 `Missing files: 0`
-- 连续两次构建，deck ID 与 guid 集合完全一致
+- `check` 0 error，且每条 warning 都能解释。
+- `build` 成功，`verify` 0 error。
+- 真机/Anki 导入一次：媒体 `Missing files: 0`。
+- 连续两次构建，deck ID 与 guid 集合完全一致。
+- 事实校对基准（hash 或 commit）已记录。
+
+## 公开数据与发布
+
+- 公开材料放 `data/Android/`、`data/MQTT/`，便于他人复现。
+- 非公开材料只放本地私有目录，加入本机 `.git/info/exclude`；只在本机构建，不入库、不发布。
+- 含内页截图的 `.apkg` 和预览 HTML 同样按机密处理。

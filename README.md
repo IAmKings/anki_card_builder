@@ -142,6 +142,7 @@ DOCX 摄取限制：压缩包 ≤20 MB、解压后 ≤200 MB、块数 ≤5000（
 
 字段定义以 `ankicards/schema.py` 为唯一真值；`skills/anki-card-builder/SKILL.md`
 记录的是流程与判断（怎么选路径、怎么裁图、怎么校对），不复制字段表。
+安装与依赖说明见 [`skills/README.md`](skills/README.md)。
 
 定位语义（**唯一真值**）：
 - `pages` 只表示 **PDF 页码**，用于背面截图与裁图；`source_kind` 为 `md/txt/docx/image` 时写 `pages` 会报错；未声明（`unknown`）时兼容放行，但整副牌组只给 1 条 warning。
