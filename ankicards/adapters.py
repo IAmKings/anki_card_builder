@@ -306,6 +306,81 @@ def from_docx_points(source: Path, name: str = "DOCX知识点") -> DeckData:
 
 
 # ---------------------------------------------------------------------------
+# TXT：标题分段 + “编号点”，source 用物理行号 line:N
+# ---------------------------------------------------------------------------
+
+_TXT_HEADING_HASH = re.compile(r"^#{1,6}\s+(.+)$")
+_TXT_HEADING_CN = re.compile(r"^[一二三四五六七八九十百]+[、.．]\s*(.+)$")
+_TXT_ITEM_BOLD = re.compile(r"^\d+[.、]\s*\*\*(.+?)\*\*\s*[：:]\s*(.+)$")
+_TXT_ITEM_PLAIN = re.compile(r"^\d+[.、]\s*(.+?)\s*[：:]\s*(.+)$")
+
+
+def _txt_heading(text: str) -> str | None:
+    for pattern in (_TXT_HEADING_HASH, _TXT_HEADING_CN):
+        match = pattern.match(text)
+        if match:
+            return match.group(1).strip()
+    return None
+
+
+def _txt_point(text: str):
+    for pattern in (_TXT_ITEM_BOLD, _TXT_ITEM_PLAIN):
+        match = pattern.match(text)
+        if match:
+            return match.group(1).strip(), match.group(2).strip()
+    return None
+
+
+@register("txt-points")
+def from_txt_points(source: Path, name: str = "TXT知识点") -> DeckData:
+    """TXT 知识点：标题行 → 子牌组，编号行 → 问答，source=line:N。"""
+    source = Path(source)
+    if source.is_dir():
+        raise CardError("txt-points 只接受单个 .txt；请传文件路径")
+    if source.suffix.lower() != ".txt":
+        raise CardError(f"txt-points 只支持 .txt，实际为 {source.suffix or '(无扩展名)'}")
+    try:
+        text = source.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise CardError("TXT 必须是 UTF-8；请用 UTF-8 重新保存后重试") from exc
+    except OSError as exc:
+        raise CardError(f"无法读取 TXT: {exc}") from exc
+
+    deck = DeckData(name=name, source_kind="txt")
+    section = ""
+    card_count = 0
+    for number, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        heading = _txt_heading(stripped)
+        if heading is not None:
+            section = heading
+            continue
+        point = _txt_point(stripped)
+        if point is None:
+            continue
+        keyword, explanation = point
+        tags = ["source:txt", "type:qa"]
+        if section:
+            tags.append(f"TXT::{section}")
+        deck.add(section, {
+            "type": "qa",
+            "q": _front(keyword),
+            "a": explanation,
+            "source": f"line:{number}",
+            "tags": tags,
+        })
+        card_count += 1
+
+    if card_count == 0:
+        raise CardError(
+            "没有解析出编号点；TXT 需形如 `1. **关键词**：解释` 或 `1. 关键词：解释`，"
+            "标题可用 `# 标题` 或 `一、标题`")
+    return deck
+
+
+# ---------------------------------------------------------------------------
 
 
 def write_deck(deck: DeckData, out_dir: str | Path, force: bool = False) -> Path:
