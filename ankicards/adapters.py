@@ -31,6 +31,7 @@ class DeckData:
     name: str
     sections: dict[str, list[dict]] = field(default_factory=dict)
     source_kind: str = "unknown"
+    warnings: list[str] = field(default_factory=list)
 
     def add(self, section: str, card: dict) -> None:
         self.sections.setdefault(section or "默认", []).append(card)
@@ -245,6 +246,7 @@ def from_docx_points(source: Path, name: str = "DOCX知识点") -> DeckData:
     deck = DeckData(name=name, source_kind="docx")
     section = ""
     card_count = 0
+    auto_numbered: list[str] = []
     for block in iter_docx_blocks(document):
         if block.kind == "paragraph":
             text = block.text.strip()
@@ -255,6 +257,8 @@ def from_docx_points(source: Path, name: str = "DOCX知识点") -> DeckData:
                 continue
             point = _docx_point(text)
             if point is None:
+                if block.numbered:
+                    auto_numbered.append(block.locator)
                 continue
             keyword, explanation = point
             deck.add(section, {
@@ -282,6 +286,17 @@ def from_docx_points(source: Path, name: str = "DOCX知识点") -> DeckData:
                 "tags": ["source:docx", "type:qa"],
             })
             card_count += 1
+
+    if auto_numbered:
+        sample = "、".join(auto_numbered[:5])
+        suffix = "…" if len(auto_numbered) > 5 else ""
+        message = (
+            f"检测到 {len(auto_numbered)} 个 Word 自动编号段落（{sample}{suffix}）："
+            "python-docx 不会把自动编号写进段落文本，无法按 `1. **关键词**：解释` 解析；"
+            "请改为手写编号，或把编号粘贴为文本。")
+        if card_count == 0:
+            raise CardError(message)
+        deck.warnings.append(message)
 
     if card_count == 0:
         raise CardError(

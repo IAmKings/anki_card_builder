@@ -138,7 +138,7 @@ python3 -m ankicards verify output/xxx.apkg
 | 文本型 PDF | ✅ `ingest` | 逐页文本 + 页码引用；加密/损坏/扫描件直接 exit 2 |
 | MD 题库 | ✅ `import --adapter android-md / mqtt-md` | 结构化问答格式 |
 | 卡片 JSON | ✅ `check/build/verify` | 手工/agent 提炼后的事实来源 |
-| DOCX | ✅ `ingest` + `import --adapter docx-points` | 逐段落/表格行文本 + `para:N`/`table:T/rR` 定位；忽略页眉页脚/图片/批注 |
+| DOCX | ✅ `ingest` + `import --adapter docx-points` | 逐段落/表格行文本 + `para:N`/`table:T/rR` 定位；忽略页眉页脚/图片/批注；不读取 Word 自动编号（`numPr`） |
 | 扫描版 PDF | ❌ 明确拒绝 | 无文本层；本工具不含 OCR；空页 ≥50% 时 ingest 直接拒绝 |
 | 可修复的损坏 PDF | ⚠️ 默认拒绝 | `--allow-repaired` 显式放行；文本可能缺失 |
 | TXT | ⏸ 未注册适配器 | 缺“答案从哪来”的确定性来源，暂不做 |
@@ -197,7 +197,7 @@ python3 -m ankicards check  /tmp/docx-deck --docx 笔记.docx --ingest .work/ing
 |------|------|------|
 | `android-md` | MD 题库目录 | 复用 `src/parsers` + 质量过滤 + 去重；实测重建 1270 张、5 个子牌组，与已入库卡组一致 |
 | `mqtt-md` | MQTT 知识点 MD | 每个知识点生成一问一答 + 一道四选一；**源数据 `data3_mqtt/` 当前不在仓库，需要自备** |
-| `docx-points` | 单个 DOCX | 标题→子牌组；`1. **关键词**：解释` 段落、至少两列的表格行→问答；`source` 写 `para:N`/`table:T/rR` |
+| `docx-points` | 单个 DOCX | 标题→子牌组；`1. **关键词**：解释` 段落、至少两列的表格行→问答；`source` 写 `para:N`/`table:T/rR`；自动编号（`numPr`）不读取，会提示改为手写编号 |
 
 新增一种格式 = 在 `ankicards/adapters.py` 里加一个带 `@register("名字")` 的函数，
 产出 `DeckData`（含 `source_kind`），不需要再复制打包逻辑。`import` 会把

@@ -7,6 +7,8 @@ from unittest import mock
 
 try:
     import docx  # type: ignore
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
     HAS_DOCX = True
 except ImportError:  # pragma: no cover
     HAS_DOCX = False
@@ -27,6 +29,19 @@ def make_docx(path: Path) -> None:
         for c, value in enumerate(row):
             table.cell(r, c).text = value
     doc.save(str(path))
+
+
+def add_auto_numbering(paragraph) -> None:
+    """给段落加 w:numPr，模拟 Word 自动编号（python-docx 的 text 不含编号）。"""
+    pPr = paragraph._p.get_or_add_pPr()
+    numPr = OxmlElement("w:numPr")
+    ilvl = OxmlElement("w:ilvl")
+    ilvl.set(qn("w:val"), "0")
+    num_id = OxmlElement("w:numId")
+    num_id.set(qn("w:val"), "1")
+    numPr.append(ilvl)
+    numPr.append(num_id)
+    pPr.append(numPr)
 
 
 @unittest.skipUnless(HAS_DOCX, "需要 python-docx")
@@ -104,6 +119,49 @@ class DocxPointsAdapterTest(unittest.TestCase):
         with mock.patch("docx.Document", side_effect=MemoryError):
             with self.assertRaises(MemoryError):
                 ADAPTERS["docx-points"](self.path)
+
+    def test_auto_numbering_without_manual_numbers_has_hint(self):
+        path = self.tmp / "auto.docx"
+        doc = docx.Document()
+        doc.add_heading("第一章", level=1)
+        add_auto_numbering(doc.add_paragraph("自动编号的知识点"))
+        doc.save(str(path))
+
+        with self.assertRaises(CardError) as ctx:
+            ADAPTERS["docx-points"](path)
+        self.assertIn("Word 自动编号", str(ctx.exception))
+        self.assertIn("手写编号", str(ctx.exception))
+
+    def test_auto_numbering_warns_when_other_cards_exist(self):
+        path = self.tmp / "mixed.docx"
+        doc = docx.Document()
+        doc.add_heading("第一章", level=1)
+        add_auto_numbering(doc.add_paragraph("自动编号的知识点"))
+        doc.add_paragraph("1. **概念**：解释")
+        doc.save(str(path))
+
+        deck = ADAPTERS["docx-points"](path)
+        self.assertEqual(deck.card_count, 1)
+        self.assertTrue(any("Word 自动编号" in w for w in deck.warnings), deck.warnings)
+
+    def test_cli_import_prints_auto_numbering_warning(self):
+        import contextlib
+        import io
+        from ankicards.cli import main
+
+        path = self.tmp / "mixed.docx"
+        doc = docx.Document()
+        doc.add_heading("第一章", level=1)
+        add_auto_numbering(doc.add_paragraph("自动编号的知识点"))
+        doc.add_paragraph("1. **概念**：解释")
+        doc.save(str(path))
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            code = main(["import", str(path), "--adapter", "docx-points",
+                         "--out", str(self.tmp / "deck")])
+        self.assertEqual(code, 0, buf.getvalue())
+        self.assertIn("Word 自动编号", buf.getvalue())
 
     def test_sources_match_ingest_locators(self):
         result = ingest_mod.ingest_docx(self.path, out=self.tmp / "ing.json",

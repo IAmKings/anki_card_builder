@@ -4,11 +4,25 @@ import unittest
 
 try:
     import docx  # type: ignore
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
     HAS_DOCX = True
 except ImportError:  # pragma: no cover
     HAS_DOCX = False
 
 from ankicards.docx import iter_docx_blocks
+
+
+def add_auto_numbering(paragraph) -> None:
+    pPr = paragraph._p.get_or_add_pPr()
+    numPr = OxmlElement("w:numPr")
+    ilvl = OxmlElement("w:ilvl")
+    ilvl.set(qn("w:val"), "0")
+    num_id = OxmlElement("w:numId")
+    num_id.set(qn("w:val"), "1")
+    numPr.append(ilvl)
+    numPr.append(num_id)
+    pPr.append(numPr)
 
 
 @unittest.skipUnless(HAS_DOCX, "需要 python-docx")
@@ -45,6 +59,15 @@ class DocxBlocksTest(unittest.TestCase):
         self.assertEqual(second.cells, ("C", "D"))
         self.assertEqual(second.text, "C | D")
         self.assertEqual(second.row_index, 2)
+
+    def test_numbered_flag(self):
+        doc = docx.Document()
+        plain = doc.add_paragraph("普通段落")
+        numbered = doc.add_paragraph("自动编号段落")
+        add_auto_numbering(numbered)
+        blocks = list(iter_docx_blocks(doc))
+        self.assertFalse(blocks[0].numbered)
+        self.assertTrue(blocks[1].numbered)
 
 
 if __name__ == "__main__":

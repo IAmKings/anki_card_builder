@@ -173,6 +173,8 @@ def cmd_import(args) -> int:
     out = write_deck(deck, args.out, force=args.force)
     print(f"已导出到 {out}：{len(deck.sections)} 个子牌组 / {deck.card_count} 张卡片 "
           f"/ source_kind={deck.source_kind}")
+    for warning in deck.warnings:
+        print(f"  ⚠ {warning}")
     for section, cards in deck.sections.items():
         print(f"  · {section}: {len(cards)} 张")
     return 0

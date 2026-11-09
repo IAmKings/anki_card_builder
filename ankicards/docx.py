@@ -21,6 +21,7 @@ class DocxBlock:
     style: str = ""                 # 段落样式名；表格行为空
     cells: tuple[str, ...] = ()     # 表格行：去空、折叠相邻重复后的单元格
     row_index: int = 0              # 表格行号（1 基）；段落为 0
+    numbered: bool = False          # 段落是否带 Word 自动编号（w:numPr）
 
 
 def iter_docx_blocks(doc: Any) -> Iterator[DocxBlock]:
@@ -36,11 +37,14 @@ def iter_docx_blocks(doc: Any) -> Iterator[DocxBlock]:
             paragraph_index += 1
             paragraph = Paragraph(child, doc)
             style = (paragraph.style.name if paragraph.style is not None else "") or ""
+            pPr = child.find(qn("w:pPr"))
+            numbered = pPr is not None and pPr.find(qn("w:numPr")) is not None
             yield DocxBlock(
                 kind="paragraph",
                 locator=f"para:{paragraph_index}",
                 text=paragraph.text,
                 style=style,
+                numbered=numbered,
             )
         elif child.tag == qn("w:tbl"):
             table_index += 1
