@@ -19,10 +19,15 @@ from pathlib import Path
 
 from .docx import iter_docx_blocks
 from .errors import CardError
+from .txt import iter_txt_lines
 from .schema import load_json
 
 DEFAULT_MAX_PAGES = 2000
 DEFAULT_MAX_BLOCKS = 5000
+DEFAULT_MAX_LINES = 50000
+DEFAULT_TXT_ENCODING = "utf-8-sig"
+MAX_TXT_BYTES = 10 * 1024 * 1024
+EMPTY_LINE_RATIO_LIMIT = 0.5
 MAX_DOCX_BYTES = 20 * 1024 * 1024
 MAX_DOCX_UNCOMPRESSED_BYTES = 200 * 1024 * 1024
 EMPTY_PAGE_RATIO_LIMIT = 0.2   # 超过即给 warning
@@ -281,12 +286,94 @@ def ingest_docx(docx_path: str | Path, out: str | Path | None = None,
     return IngestResult(manifest=manifest, out_path=out_path)
 
 
+def ingest_txt(txt_path: str | Path, out: str | Path | None = None,
+               max_lines: int = DEFAULT_MAX_LINES,
+               encoding: str = DEFAULT_TXT_ENCODING,
+               repo_root: Path | None = None) -> IngestResult:
+    """把 .txt 按物理行抽成 line:N 清单。"""
+    path = Path(txt_path).expanduser().resolve()
+    if not path.exists():
+        raise IngestError(f"找不到文件: {path}")
+    if not path.is_file():
+        raise IngestError(f"不是文件: {path}")
+    suffix = path.suffix.lower()
+    if suffix != ".txt":
+        raise IngestError(f"只支持 .txt；{suffix or '(无扩展名)'} 请另存为 .txt")
+    if path.stat().st_size > MAX_TXT_BYTES:
+        raise IngestError(
+            f"TXT 超过 {MAX_TXT_BYTES // (1024 * 1024)} MB 上限；请拆分文件。")
+
+    sha = file_sha256(path)
+    out_path = Path(out).expanduser() if out else _default_out(path, sha)
+    _check_out_path(out_path, repo_root)
+
+    try:
+        text = path.read_text(encoding=encoding)
+    except LookupError as exc:
+        raise IngestError(f"未知编码: {encoding}") from exc
+    except UnicodeDecodeError as exc:
+        raise IngestError(
+            f"无法按 {encoding} 解码 {path.name}；请用 --encoding 指定正确编码（如 gb18030）。"
+        ) from exc
+    except OSError as exc:
+        raise IngestError(f"无法读取 TXT: {exc}") from exc
+
+    lines = text.splitlines()
+    if not lines:
+        raise IngestError("没有可提取文本：TXT 是空文件。")
+    if len(lines) > max_lines:
+        raise IngestError(
+            f"行数 {len(lines)} 超过上限 {max_lines}；请拆分文件或用 --max-lines 放宽。")
+
+    units = []
+    empty_lines = []
+    for item in iter_txt_lines(text):
+        if item.chars == 0:
+            empty_lines.append(item.line)
+        units.append({
+            "id": f"line:{item.line}",
+            "line": item.line,
+            "chars": item.chars,
+            "text": item.text,
+        })
+
+    total_chars = sum(unit["chars"] for unit in units)
+    if total_chars == 0:
+        raise IngestError("没有可提取文本：TXT 只有空行/空白。")
+
+    warnings: list[str] = []
+    empty_ratio = len(empty_lines) / len(units)
+    if empty_ratio >= EMPTY_LINE_RATIO_LIMIT:
+        warnings.append(
+            f"{len(empty_lines)}/{len(units)} 行为空行"
+            f"（>{int(EMPTY_LINE_RATIO_LIMIT * 100)}%）；引用这些行的卡片会被闸门拦下")
+
+    manifest = {
+        "format": "txt",
+        "source": path.name,
+        "source_sha256": sha,
+        "encoding": encoding,
+        "unit_kind": "line",
+        "unit_count": len(units),
+        "total_chars": total_chars,
+        "empty_lines": empty_lines,
+        "warnings": warnings,
+        "units": units,
+    }
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(manifest, ensure_ascii=False, indent=1, sort_keys=True) + "\n"
+    out_path.write_text(payload, encoding="utf-8")
+    return IngestResult(manifest=manifest, out_path=out_path)
+
+
 def ingest(source: str | Path, out: str | Path | None = None,
            max_pages: int = DEFAULT_MAX_PAGES,
            max_blocks: int = DEFAULT_MAX_BLOCKS,
+           max_lines: int = DEFAULT_MAX_LINES,
+           encoding: str = DEFAULT_TXT_ENCODING,
            allow_repaired: bool = False,
            repo_root: Path | None = None) -> IngestResult:
-    """按扩展名分派：.pdf → ingest_pdf，.docx → ingest_docx。"""
+    """按扩展名分派：.pdf → ingest_pdf，.docx → ingest_docx，.txt → ingest_txt。"""
     path = Path(source).expanduser().resolve()
     suffix = path.suffix.lower()
     if suffix == ".pdf":
@@ -294,10 +381,13 @@ def ingest(source: str | Path, out: str | Path | None = None,
                           allow_repaired=allow_repaired, repo_root=repo_root)
     if suffix == ".docx":
         return ingest_docx(path, out=out, max_blocks=max_blocks, repo_root=repo_root)
+    if suffix == ".txt":
+        return ingest_txt(path, out=out, max_lines=max_lines, encoding=encoding,
+                          repo_root=repo_root)
     if suffix in (".doc", ".docm"):
         raise IngestError(f"只支持 .docx；{suffix} 请先另存为 .docx")
-    if suffix in (".md", ".markdown", ".txt"):
-        raise IngestError(f"{suffix} 不是 PDF/DOCX；请用 `python3 -m ankicards import --adapter`。")
+    if suffix in (".md", ".markdown"):
+        raise IngestError(f"{suffix} 不是 PDF/DOCX/TXT；请用 `python3 -m ankicards import --adapter`。")
     raise IngestError(f"不支持的文件类型: {suffix or '(无扩展名)'}")
 
 
@@ -316,11 +406,16 @@ def load_ingest(path: str | Path) -> IngestData:
     if sha is not None and not isinstance(sha, str):
         raise IngestError(f"{path}: source_sha256 必须是字符串")
     fmt = data.get("format")
-    if fmt not in (None, "pdf", "docx"):
-        raise IngestError(f"{path}: format 必须是 pdf/docx，实际为 {fmt!r}")
+    if fmt not in (None, "pdf", "docx", "txt"):
+        raise IngestError(f"{path}: format 必须是 pdf/docx/txt，实际为 {fmt!r}")
     if fmt is None:
         first = units[0] if units else None
-        fmt = "docx" if isinstance(first, dict) and "locator" in first else "pdf"
+        if isinstance(first, dict) and "locator" in first:
+            fmt = "docx"
+        elif isinstance(first, dict) and "line" in first:
+            fmt = "txt"
+        else:
+            fmt = "pdf"
 
     if fmt == "docx":
         locators: dict[str, str] = {}
@@ -337,6 +432,24 @@ def load_ingest(path: str | Path) -> IngestData:
             raise IngestError(f"{path} 里没有任何段落/表格行")
         return IngestData(pages={}, source_sha256=sha, format="docx", locators=locators)
 
+    if fmt == "txt":
+        locators: dict[str, str] = {}
+        for unit in units:
+            if not isinstance(unit, dict):
+                raise IngestError(f"{path}: units 必须是对象数组")
+            line = unit.get("line")
+            if not isinstance(line, int) or isinstance(line, bool) or line < 1:
+                raise IngestError(f"{path}: TXT unit 缺少正整数 line")
+            locator = unit.get("id") or f"line:{line}"
+            if not isinstance(locator, str) or not locator:
+                raise IngestError(f"{path}: TXT unit 缺少 locator")
+            if locator in locators:
+                raise IngestError(f"{path}: TXT locator 重复: {locator}")
+            locators[locator] = str(unit.get("text", ""))
+        if not locators:
+            raise IngestError(f"{path} 里没有任何行")
+        return IngestData(pages={}, source_sha256=sha, format="txt", locators=locators)
+
     pages: dict[int, str] = {}
     for unit in units:
         if not isinstance(unit, dict) or not isinstance(unit.get("page"), int):
@@ -351,6 +464,8 @@ def main_cli(args) -> int:
     try:
         result = ingest(args.source, out=args.out, max_pages=args.max_pages,
                         max_blocks=getattr(args, "max_blocks", DEFAULT_MAX_BLOCKS),
+                        max_lines=getattr(args, "max_lines", DEFAULT_MAX_LINES),
+                        encoding=getattr(args, "encoding", DEFAULT_TXT_ENCODING),
                         allow_repaired=getattr(args, "allow_repaired", False))
     except IngestError as exc:
         print(f"✗ {exc}", file=sys.stderr)
@@ -360,6 +475,9 @@ def main_cli(args) -> int:
     if manifest["format"] == "docx":
         print(f"  {manifest['unit_count']} 块 / {manifest['total_chars']} 字 / "
               f"空块 {len(manifest['empty_units'])} / sha256 {manifest['source_sha256'][:12]}…")
+    elif manifest["format"] == "txt":
+        print(f"  {manifest['unit_count']} 行 / {manifest['total_chars']} 字 / "
+              f"空行 {len(manifest['empty_lines'])} / sha256 {manifest['source_sha256'][:12]}…")
     else:
         print(f"  {manifest['unit_count']} 页 / {manifest['total_chars']} 字 / "
               f"空页 {len(manifest['empty_pages'])} / sha256 {manifest['source_sha256'][:12]}…")

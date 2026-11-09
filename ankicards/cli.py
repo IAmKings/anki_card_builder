@@ -20,8 +20,9 @@ from pathlib import Path
 
 from .build import build
 from .errors import CardError, GateError
-from .ingest import (DEFAULT_MAX_BLOCKS, DEFAULT_MAX_PAGES, file_sha256,
-                     load_ingest, main_cli as ingest_cli)
+from .ingest import (DEFAULT_MAX_BLOCKS, DEFAULT_MAX_LINES, DEFAULT_MAX_PAGES,
+                     DEFAULT_TXT_ENCODING, file_sha256, load_ingest,
+                     main_cli as ingest_cli)
 from .preview import build_preview
 from .schema import SOURCE_KINDS, DeckSpec, load_spec, validate
 from .verify import verify
@@ -252,13 +253,17 @@ def main(argv: list[str] | None = None) -> int:
     p_import.add_argument("--force", action="store_true", help="目标目录已有卡片时也强制覆盖")
     p_import.set_defaults(func=cmd_import)
 
-    p_ingest = sub.add_parser("ingest", help="把 PDF/DOCX 摄取成可寻址的文本 JSON")
-    p_ingest.add_argument("source", help="PDF 或 DOCX 文件（MD/TXT 请用 import --adapter）")
+    p_ingest = sub.add_parser("ingest", help="把 PDF/DOCX/TXT 摄取成可寻址的文本 JSON")
+    p_ingest.add_argument("source", help="PDF/DOCX/TXT 文件（MD 请用 import --adapter）")
     p_ingest.add_argument("--out", help="输出 JSON；默认 .work/ingest/<名字>-<sha8>.json")
     p_ingest.add_argument("--max-pages", type=int, default=DEFAULT_MAX_PAGES,
                           help=f"PDF 页数上限（默认 {DEFAULT_MAX_PAGES}）")
     p_ingest.add_argument("--max-blocks", type=int, default=DEFAULT_MAX_BLOCKS,
                           help=f"DOCX 块数上限（默认 {DEFAULT_MAX_BLOCKS}）")
+    p_ingest.add_argument("--max-lines", type=int, default=DEFAULT_MAX_LINES,
+                          help=f"TXT 行数上限（默认 {DEFAULT_MAX_LINES}）")
+    p_ingest.add_argument("--encoding", default=DEFAULT_TXT_ENCODING,
+                          help=f"TXT 编码（默认 {DEFAULT_TXT_ENCODING}）")
     p_ingest.add_argument("--allow-repaired", action="store_true",
                           help="接受被引擎修复过的损坏 PDF（默认拒绝）")
     p_ingest.set_defaults(func=cmd_ingest)
