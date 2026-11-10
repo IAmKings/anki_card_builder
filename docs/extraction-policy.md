@@ -192,3 +192,55 @@ PDF 的定位单位是页，但排版上的段落会跨页。以前只能按单�
   校验并成功编译，同一 quote 用 `page:190` 会被拦下。
 - 仍未解决：`crops.json` 的裁图只支持单页（`page` + `rect`），跨页段落要裁图仍需手工；
   同一段跨三页以上目前要写 `page:N-N+2`，没有额外提示。
+
+## 12. 可卡性预检：五个指标定口径（2026-11-10）
+
+形态判定回答「能不能自动抽」，但「该抽什么卡型、多少张」还要看文本的客观特征。
+`ingest` 之后先算下面五个指标，再决定卡型组合与密度带——这是把「读完才发现错配」
+提前到开工前的 30 秒。
+
+| 指标 | 算法 | 阈值 | 指向的决策 |
+|---|---|---|---|
+| 编号点占比 | `^\d+[.、]` 开头的非空单元 / 非空单元 | >30% 可走 `*-points`；<10% 禁止 | 是否走自动适配器 |
+| 数字句占比 | 含 `\d` 的句子 / 总句子 | <3% 不出 `fact`；>30% `fact` 可为主力 | 卡型组合 |
+| 平均段长 | 非空单元字数均值（同时看中位数、>300 字占比） | >300 字占比 >20% → 长引用风险，优先 EPUB | 定位粒度、跨页风险 |
+| 引号密度 | （`「` + `“`）数 / 非空单元 | >0.8 个/段 → 对话/引语型，出情节卡或金句 | `phrase`/`fact` 取舍 |
+| 表格行占比 | `table:` 定位行 / 总单元 | >20% → 词表型资料，`fact` 密度可拉到极高 | 是否按表出卡 |
+
+两个实测样本（同一套算法）：
+
+| 样本 | 非空单元 | 编号点 | 数字句 | 平均段长 | >300 字 | 口径结论 |
+|---|---|---|---|---|---|---|
+| 散文集《一千七百種靠近》EPUB | 1,060 | 0.3% | **0.6%** | 70 字（中位 36） | 1.4% | 不出 `fact`；`claim`/`phrase`/`style`；800–1,200 字/张 |
+| 技术手册 TXT（性能优化案例） | 1,238 | 0.0% | **52.0%** | 30 字（中位 27） | 0.0% | 以 `fact` 为主力；短段可直接一卡一条 |
+
+两者的数字句占比差 **87 倍**——这就是「同一套工具两种密度」的客观来源，不是写卡人
+的手感差异。
+
+可直接复制的算法（只读 ingest 清单，不改仓库）：
+
+```python
+import json, re, statistics
+
+d = json.load(open("ingest.json"))
+units = [u for u in d["units"] if (u.get("text") or "").strip()]
+texts = [u["text"].strip() for u in units]
+joined = "\n".join(texts)
+sents = [s for s in re.split(r"[。！？!?…]+", joined) if s.strip()]
+lens = [len(t) for t in texts]
+print("编号点占比", sum(1 for t in texts if re.match(r"^\d+[.、]", t)) / len(texts))
+print("数字句占比", sum(1 for s in sents if re.search(r"\d", s)) / max(1, len(sents)))
+print("平均段长", statistics.mean(lens), "中位", statistics.median(lens),
+      ">300字占比", sum(1 for x in lens if x > 300) / len(lens))
+print("引号密度", (joined.count("「") + joined.count("“")) / len(texts))
+print("表格行占比", sum(1 for u in d["units"]
+      if str(u.get("locator") or u.get("id") or "").startswith("table:")) / len(d["units"]))
+```
+
+使用边界：
+
+- 这五个指标只用于**选路与定口径**，不参与 `plan check`。覆盖率仍由 E6 负责，密度是否
+  合理仍由人判断（见 §10）。
+- 阈值是启发式，不是断言。指标与人工判断冲突时，以人工判断为准，但要说明理由。
+- 指标低不代表不能出卡，只代表**不能出那一类卡**：散文数字句 0.6% 就不该有 `fact`，
+  但它可以有很好的 `claim` 与 `style`。
