@@ -89,16 +89,21 @@
 
 ```bash
 # 1) 源 → 可寻址文本（PDF/DOCX/TXT/HTML/URL；默认写 .work/ingest/，被 gitignore）
-python3 -m ankicards ingest <手册.pdf|笔记.docx|笔记.txt|page.html|https://...>
+python3 -m ankicards ingest <手册.pdf|笔记.docx|笔记.txt|book.epub|page.html|https://...>
 
-# 2) 校验卡片数据；--ingest 启用溯源闸门（页码/定位必须存在且有文本）
+# 2) 文档抽取：agent/人只写 plan.json（每条带逐字 quote），先校验再编译
+python3 -m ankicards plan check   plan.json --ingest .work/ingest/xxx.json --min-coverage 0.9 [--profile novel]
+python3 -m ankicards plan compile plan.json --out <牌组目录> --ingest .work/ingest/xxx.json [--with-key] [--profile novel]
+python3 -m ankicards plan diff    plan.json --deck <牌组目录>
+
+# 3) 校验卡片数据；--ingest 启用溯源闸门（页码/定位必须存在且有文本）
 python3 -m ankicards check  <牌组目录> [--pdf 手册.pdf|--html page.html] [--ingest .work/ingest/xxx.json]
 
-# 3) 构建 apkg：引用 pages/DOCX/TXT/Web 定位的牌组**必须**给 --ingest；有图片题时还必须给 --pdf
+# 4) 构建 apkg：引用 pages/DOCX/TXT/Web 定位的牌组**必须**给 --ingest；有图片题时还必须给 --pdf
 python3 -m ankicards build  <牌组目录> --out output/xxx.apkg --ingest .work/ingest/xxx.json \
                             [--pdf 手册.pdf|--html page.html] [--lite]
 
-# 4) 预览同样过闸门；5) 导出后结构审计
+# 5) 预览同样过闸门；6) 导出后结构审计
 python3 -m ankicards preview <牌组目录> --out x.html --ingest .work/ingest/xxx.json [--pdf 手册.pdf|--html page.html]
 python3 -m ankicards verify output/xxx.apkg
 ```
@@ -108,12 +113,14 @@ python3 -m ankicards verify output/xxx.apkg
 | 码 | 含义 | 典型场景 |
 |---|---|---|
 | `0` | 成功 | — |
-| `1` | 数据/闸门失败 | schema 校验不通过、含 pages/DOCX/TXT/Web 定位却未给 `--ingest`、verify 结构错误 |
+| `1` | 数据/闸门失败 | schema 校验不通过、含 pages/DOCX/TXT/Web/EPUB 定位却未给 `--ingest`、`plan check` 有 error、verify 结构错误 |
 | `2` | 用法或环境错误 | 缺必填参数、源目录为空、拒绝覆盖、坏 JSON、PDF 不可读/加密、缺 `--pdf` 却有图片题、apkg 不是 zip |
 
 坏 JSON、加密 PDF、缺 `--pdf` 这类问题会以可读文案 + exit 2 结束，不再抛 traceback。
 
 构建与预览对**含 pages、DOCX/TXT/WEB 定位的牌组强制要求 `--ingest`**：没有 ingest 产物就无法证明页码/段落/行号/块号真实存在，宁可拒绝也不产出假溯源。
+
+ingest 会同时产出 `groups`：编号点连同紧跟的缩进子项、没说完的续行、列表项归成一组，组区间（如 `line:3-7`）是合法定位。`import ... --ingest <清单>` 让 `*-points` 适配器按组出卡，答案并入组内其余文本、`source` 写区间；不传 `--ingest` 时仍按单行切点（旧行为）。
 同时给 `--pdf`/`--docx`/`--txt`/`--html` 与 `--ingest` 时会比对 `source_sha256`；不是同一份文件直接 exit 2。URL 产物没有本地文件 sha，只做定位闸门，不再联网校验。
 
 **格式支持矩阵（v0.3.2）**（明确的能力边界，避免“看起来支持”）：
@@ -123,9 +130,9 @@ python3 -m ankicards verify output/xxx.apkg
 | 文本型 PDF | ✅ `ingest` | 逐页文本 + 页码引用；加密/损坏/扫描件直接 exit 2 |
 | MD 题库 | ✅ `import --adapter android-md / mqtt-md` | 结构化问答格式 |
 | 卡片 JSON | ✅ `check/build/verify` | 手工/agent 提炼后的事实来源 |
-| DOCX | ✅ `ingest` + `import --adapter docx-points` | 逐段落/表格行文本 + `para:N`/`table:T/rR` 定位；忽略页眉页脚/图片/批注；不读取 Word 自动编号（`numPr`） |
-| TXT | ✅ `ingest` + `import --adapter txt-points` | 物理行 `line:N`；标题 `# 标题` 或 `一、标题`，编号点 `1. **关键词**：解释`；默认 UTF-8（含 BOM），旧文件用 `--encoding gb18030` |
-| Web（URL / 本地 HTML） | ✅ `ingest` + `import --adapter web-points` | 仅静态 HTML；提取标题/段落/列表项/表格行，`block:N` 定位；不执行 JS、不登录、不下载图片；URL 自动出卡用 manifest 两步 |
+| DOCX | ✅ `ingest` + `import --adapter docx-points [--ingest]` | 逐段落/表格行文本 + `para:N`/`table:T/rR` 定位；忽略页眉页脚/图片/批注；不读取 Word 自动编号（`numPr`）；`--ingest` 按组合并续行/子项 |
+| TXT | ✅ `ingest` + `import --adapter txt-points [--ingest]` | 物理行 `line:N`；标题 `# 标题` 或 `一、标题`，编号点 `1. **关键词**：解释`；默认 UTF-8（含 BOM），旧文件用 `--encoding gb18030`；`--ingest` 按组合并续行/子项 |
+| Web（URL / 本地 HTML） | ✅ `ingest` + `import --adapter web-points [--ingest]` | 仅静态 HTML；提取标题/段落/列表项/表格行，`block:N` 定位；不执行 JS、不登录、不下载图片；URL 自动出卡用 manifest 两步；`--ingest` 把列表子项并进同组答案 |
 | 扫描版 PDF | ❌ 明确拒绝 | 无文本层；本工具不含 OCR；空页 ≥50% 时 ingest 直接拒绝 |
 | 可修复的损坏 PDF | ⚠️ 默认拒绝 | `--allow-repaired` 显式放行；文本可能缺失 |
 
@@ -147,15 +154,24 @@ DOCX 摄取限制：压缩包 ≤20 MB、解压后 ≤200 MB、块数 ≤5000（
   deck.json        # 可选：{"name": "顶层牌组名", "source_kind": "pdf"}
   cards/*.json     # 必需：{"deck": "子牌组名", "cards": [...]}
   crops.json       # 可选：图片题的裁图区域（page + rect）
+  plan.json        # 可选：文档抽取的中间产物（每张卡的逐字 quote + 未出卡理由）
 ```
+
+`plan.json` 是抽取环节的唯一接缝：机械适配器、人、离线 LLM 都只写它，
+由 `plan check` 做确定性校验（quote 必须是定位文本的逐字子串、卡面数字必须能在
+quote 中找到、理由属于枚举、条目区间不相交、可选覆盖率下限），再由
+`plan compile` 编译成 `cards/*.json`。它不在 `load_spec` 的读取范围内，
+所以放进牌组目录不会影响 `check`/`build`。`quote` 不写进卡片（Anki 字段固定），
+plan 本身就是「这张卡从哪句话来」的审计记录。
 
 字段定义以 `ankicards/schema.py` 为唯一真值；`skills/anki-card-builder/SKILL.md`
 记录的是流程与判断（怎么选路径、怎么裁图、怎么校对），不复制字段表。
 安装与依赖说明见 [`skills/README.md`](skills/README.md)。
 
 定位语义（**唯一真值**）：
+- 可选 `key`：12 位小写十六进制（`plan compile --with-key` 生成）。有 key 的卡按 key 定 guid，改文字不会在 Anki 里变成新卡；只用于**新牌组**，已发布牌组不要加。
 - `pages` 只表示 **PDF 页码**，用于背面截图与裁图；`source_kind` 为 `md/txt/docx/web/image` 时写 `pages` 会报错；未声明（`unknown`）时兼容放行，但整副牌组只给 1 条 warning。
-- `source` 用于非 PDF 来源的溯源；`source_kind=docx` 时必须是 `para:N`（body 内第 N 个段落，空段落也计数）或 `table:T/rR`（第 T 个表格第 R 行）；`source_kind=txt` 时必须是 `line:N`（`splitlines()` 的物理行号，空行也计数）；`source_kind=web` 时必须是 `block:N`（提取后的有效块序号，空块不计数）。三者都要求能在 ingest 产物中找到、文本非空；MD 仍用自由文本。
+- `source` 用于非 PDF 来源的溯源；`source_kind=docx` 时必须是 `para:N` 或区间 `para:N-M`（body 内第 N 个段落，空段落也计数），或 `table:T/rR`（第 T 个表格第 R 行）；`source_kind=txt` 时必须是 `line:N` 或 `line:N-M`（`splitlines()` 的物理行号，空行也计数）；`source_kind=web` 时必须是 `block:N` 或 `block:N-M`（提取后的有效块序号，空块不计数）；`source_kind=epub` 时必须是 `chapter:C/p:M`（spine 第 C 章第 M 个内容块）。三者都要求能在 ingest 产物中找到、文本非空，区间还要求起点不大于终点；MD 仍用自由文本。
 - 两者可以并存：`pages` 出截图，`source` 给段落级定位。
 - 卡片字段是**白名单**，未知字段直接报错，避免“校验通过但构建不消费”的假溯源。
 

@@ -21,6 +21,11 @@ from urllib.parse import urlparse
 
 from .docx import iter_docx_blocks
 from .errors import CardError
+from .epub import read_epub
+from .grouping import (
+    classify_docx_block, classify_epub_block, classify_txt_line,
+    classify_web_block, group_units, missing_units,
+)
 from .txt import iter_txt_lines
 from .schema import load_json
 from .web import (
@@ -40,6 +45,18 @@ EMPTY_PAGE_RATIO_LIMIT = 0.2   # 超过即给 warning
 EMPTY_FAIL_RATIO = 0.5         # 达到即拒绝
 
 
+def _groups(units: list[dict], classify, fmt: str) -> list[dict]:
+    """给 ingest 产物算 groups，并自检「每个非空单元都被归组」。"""
+    groups = group_units(units, classify)
+    uncovered = missing_units(units, groups)
+    if uncovered:
+        sample = "、".join(uncovered[:5])
+        raise IngestError(
+            f"{fmt} 分组自检失败：{len(uncovered)} 个非空单元没有归组（{sample}）；"
+            "这是分组规则的问题，请报 issue。")
+    return groups
+
+
 @dataclass
 class IngestData:
     """load_ingest 的返回值：页码/定位→文本 + 源文件 sha256（可能缺省）。"""
@@ -48,6 +65,8 @@ class IngestData:
     source_sha256: str | None = None
     format: str = "pdf"
     locators: dict[str, str] = field(default_factory=dict)
+    #: 分组记录（grouping.group_units 的产物）；PDF 与旧版清单里为空。
+    groups: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -284,6 +303,48 @@ def ingest_docx(docx_path: str | Path, out: str | Path | None = None,
         "empty_units": empty_units,
         "warnings": warnings,
         "engine": f"python-docx {docx.__version__}",
+        "groups": _groups(units, classify_docx_block, "docx"),
+        "units": units,
+    }
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(manifest, ensure_ascii=False, indent=1, sort_keys=True) + "\n"
+    out_path.write_text(payload, encoding="utf-8")
+    return IngestResult(manifest=manifest, out_path=out_path)
+
+
+def ingest_epub(epub_path: str | Path, out: str | Path | None = None,
+                max_blocks: int = DEFAULT_MAX_BLOCKS,
+                repo_root: Path | None = None) -> IngestResult:
+    """把 .epub 拆成 chapter:C/p:M 的段落清单（章节顺序来自 spine）。"""
+    path = Path(epub_path).expanduser().resolve()
+    if not path.exists():
+        raise IngestError(f"找不到文件: {path}")
+    if not path.is_file():
+        raise IngestError(f"不是文件: {path}")
+    if path.suffix.lower() != ".epub":
+        raise IngestError(f"只支持 .epub；{path.suffix or '(无扩展名)'} 请先转换格式")
+
+    sha = file_sha256(path)
+    out_path = Path(out).expanduser() if out else _default_out(path, sha)
+    _check_out_path(out_path, repo_root)
+
+    try:
+        units, chapters, warnings = read_epub(path, max_blocks=max_blocks)
+    except CardError as exc:
+        raise IngestError(str(exc)) from exc
+    total_chars = sum(unit["chars"] for unit in units)
+    manifest = {
+        "format": "epub",
+        "source": path.name,
+        "source_sha256": sha,
+        "unit_kind": "block",
+        "chapter_count": len(chapters),
+        "unit_count": len(units),
+        "total_chars": total_chars,
+        "chapters": chapters,
+        "warnings": warnings,
+        "engine": "zipfile+lxml",
+        "groups": _groups(units, classify_epub_block, "epub"),
         "units": units,
     }
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -364,6 +425,7 @@ def ingest_txt(txt_path: str | Path, out: str | Path | None = None,
         "total_chars": total_chars,
         "empty_lines": empty_lines,
         "warnings": warnings,
+        "groups": _groups(units, classify_txt_line, "txt"),
         "units": units,
     }
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -423,6 +485,7 @@ def ingest_html(html_path: str | Path, out: str | Path | None = None,
         "unit_count": len(units),
         "total_chars": total_chars,
         "warnings": [],
+        "groups": _groups(units, classify_web_block, "web"),
         "units": units,
     }
     out_path = Path(out).expanduser().resolve() if out else _default_out(path, sha)
@@ -483,6 +546,7 @@ def ingest_url(url: str, out: str | Path | None = None,
         "unit_count": len(units),
         "total_chars": total_chars,
         "warnings": [],
+        "groups": _groups(units, classify_web_block, "web"),
         "units": units,
     }
     out_path = Path(out).expanduser().resolve() if out else _default_out_url(url, content_sha)
@@ -514,6 +578,8 @@ def ingest(source: str | Path, out: str | Path | None = None,
     if suffix == ".pdf":
         return ingest_pdf(path, out=out, max_pages=max_pages,
                           allow_repaired=allow_repaired, repo_root=repo_root)
+    if suffix == ".epub":
+        return ingest_epub(path, out=out, max_blocks=max_blocks, repo_root=repo_root)
     if suffix == ".docx":
         return ingest_docx(path, out=out, max_blocks=max_blocks, repo_root=repo_root)
     if suffix == ".txt":
@@ -527,6 +593,38 @@ def ingest(source: str | Path, out: str | Path | None = None,
     if suffix in (".md", ".markdown"):
         raise IngestError(f"{suffix} 不是 PDF/DOCX/TXT；请用 `python3 -m ankicards import --adapter`。")
     raise IngestError(f"不支持的文件类型: {suffix or '(无扩展名)'}")
+
+
+def _add_group_locators(data: dict, locators: dict[str, str],
+                        path: str | Path) -> list[dict]:
+    """把分组区间（line:3-7）注册为定位，并返回分组记录。"""
+    groups = data.get("groups")
+    if groups is None:
+        return []
+    if not isinstance(groups, list):
+        raise IngestError(f"{path}: groups 必须是数组")
+    for group in groups:
+        if not isinstance(group, dict):
+            raise IngestError(f"{path}: groups 里必须是对象")
+        locator = group.get("locator")
+        members = group.get("unit_locators")
+        if not isinstance(locator, str) or not locator:
+            raise IngestError(f"{path}: group 缺少 locator")
+        if not isinstance(members, list) or not members:
+            raise IngestError(f"{path}: group {locator} 缺少 unit_locators")
+        if locator in locators:
+            if len(members) == 1 and members[0] == locator:
+                continue      # 单成员组的定位就是单元定位，已在 locators 里
+            raise IngestError(f"{path}: group 定位与单元定位冲突: {locator}")
+        texts = []
+        for member in members:
+            if not isinstance(member, str) or member not in locators:
+                raise IngestError(f"{path}: group {locator} 引用了不存在的单元 {member!r}")
+            texts.append(locators[member])
+        if not "".join(texts).strip():
+            raise IngestError(f"{path}: group {locator} 的文本是空的")
+        locators[locator] = "\n".join(texts)
+    return groups
 
 
 def load_ingest(path: str | Path) -> IngestData:
@@ -544,11 +642,13 @@ def load_ingest(path: str | Path) -> IngestData:
     if sha is not None and not isinstance(sha, str):
         raise IngestError(f"{path}: source_sha256 必须是字符串")
     fmt = data.get("format")
-    if fmt not in (None, "pdf", "docx", "txt", "web"):
-        raise IngestError(f"{path}: format 必须是 pdf/docx/txt/web，实际为 {fmt!r}")
+    if fmt not in (None, "pdf", "docx", "txt", "web", "epub"):
+        raise IngestError(f"{path}: format 必须是 pdf/docx/txt/web/epub，实际为 {fmt!r}")
     if fmt is None:
         first = units[0] if units else None
-        if isinstance(first, dict) and "locator" in first:
+        if isinstance(first, dict) and "chapter" in first:
+            fmt = "epub"
+        elif isinstance(first, dict) and "locator" in first:
             fmt = "docx"
         elif isinstance(first, dict) and "line" in first:
             fmt = "txt"
@@ -568,7 +668,26 @@ def load_ingest(path: str | Path) -> IngestData:
             locators[locator] = str(unit.get("text", ""))
         if not locators:
             raise IngestError(f"{path} 里没有任何段落/表格行")
-        return IngestData(pages={}, source_sha256=sha, format="docx", locators=locators)
+        groups = _add_group_locators(data, locators, path)
+        return IngestData(pages={}, source_sha256=sha, format="docx",
+                          locators=locators, groups=groups)
+
+    if fmt == "epub":
+        locators: dict[str, str] = {}
+        for unit in units:
+            if not isinstance(unit, dict):
+                raise IngestError(f"{path}: units 必须是对象数组")
+            locator = unit.get("locator") or unit.get("id")
+            if not isinstance(locator, str) or not locator:
+                raise IngestError(f"{path}: EPUB unit 缺少 locator")
+            if locator in locators:
+                raise IngestError(f"{path}: EPUB locator 重复: {locator}")
+            locators[locator] = str(unit.get("text", ""))
+        if not locators:
+            raise IngestError(f"{path} 里没有任何段落")
+        groups = _add_group_locators(data, locators, path)
+        return IngestData(pages={}, source_sha256=sha, format="epub",
+                          locators=locators, groups=groups)
 
     if fmt == "web":
         locators: dict[str, str] = {}
@@ -583,7 +702,9 @@ def load_ingest(path: str | Path) -> IngestData:
             locators[locator] = str(unit.get("text", ""))
         if not locators:
             raise IngestError(f"{path} 里没有任何网页文本块")
-        return IngestData(pages={}, source_sha256=sha, format="web", locators=locators)
+        groups = _add_group_locators(data, locators, path)
+        return IngestData(pages={}, source_sha256=sha, format="web",
+                          locators=locators, groups=groups)
 
     if fmt == "txt":
         locators: dict[str, str] = {}
@@ -601,7 +722,9 @@ def load_ingest(path: str | Path) -> IngestData:
             locators[locator] = str(unit.get("text", ""))
         if not locators:
             raise IngestError(f"{path} 里没有任何行")
-        return IngestData(pages={}, source_sha256=sha, format="txt", locators=locators)
+        groups = _add_group_locators(data, locators, path)
+        return IngestData(pages={}, source_sha256=sha, format="txt",
+                          locators=locators, groups=groups)
 
     pages: dict[int, str] = {}
     for unit in units:
@@ -634,6 +757,9 @@ def main_cli(args) -> int:
     elif manifest["format"] == "txt":
         print(f"  {manifest['unit_count']} 行 / {manifest['total_chars']} 字 / "
               f"空行 {len(manifest['empty_lines'])} / sha256 {manifest['source_sha256'][:12]}…")
+    elif manifest["format"] == "epub":
+        print(f"  {manifest['chapter_count']} 章 / {manifest['unit_count']} 段 / "
+              f"{manifest['total_chars']} 字 / sha256 {manifest['source_sha256'][:12]}…")
     elif manifest["format"] == "web":
         sha = manifest.get("content_sha256") or manifest.get("source_sha256") or ""
         print(f"  {manifest['unit_count']} 块 / {manifest['total_chars']} 字 / "

@@ -189,6 +189,32 @@ class DocxPointsAdapterTest(unittest.TestCase):
                          "--ingest", str(result.out_path)])
             self.assertEqual(code, 0, buf.getvalue())
 
+    def test_cli_import_with_ingest_merges_continuation(self):
+        import contextlib
+        import io
+        import json
+        from ankicards.cli import main
+
+        doc = docx.Document()
+        doc.add_heading("第一章", level=1)
+        doc.add_paragraph("1. **启动**：执行命令，默认端口 8080；")
+        doc.add_paragraph("生产环境需覆盖配置并开启 TLS。")
+        path = self.tmp / "cont.docx"
+        doc.save(str(path))
+        manifest = ingest_mod.ingest_docx(
+            path, out=self.tmp / "ing2.json", repo_root=self.tmp).out_path
+
+        out = self.tmp / "deck2"
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            code = main(["import", str(path), "--adapter", "docx-points",
+                         "--ingest", str(manifest), "--out", str(out)])
+        self.assertEqual(code, 0, buf.getvalue())
+        cards = json.loads((out / "cards" / "01.json").read_text(encoding="utf-8"))["cards"]
+        self.assertEqual(len(cards), 1, cards)
+        self.assertEqual(cards[0]["source"], "para:2-3")
+        self.assertIn("生产环境需覆盖配置并开启 TLS。", cards[0]["a"])
+
     def test_no_points_rejected(self):
         path = self.tmp / "plain.docx"
         doc = docx.Document()

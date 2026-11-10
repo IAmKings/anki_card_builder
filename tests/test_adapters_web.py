@@ -105,6 +105,28 @@ class WebAdapterCliTest(unittest.TestCase):
             self.assertEqual(code, 0, output)
             self.assertTrue((tmp / "x.apkg").is_file())
 
+    def test_import_with_ingest_folds_list_items(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            html = tmp / "page.html"
+            html.write_text(
+                "<html><body><h2>部署</h2>"
+                "<p>1. **启动**：执行命令</p>"
+                "<ul><li>先改配置</li><li>再重启</li></ul>"
+                "</body></html>", encoding="utf-8")
+            manifest = ingest_mod.ingest_html(html, out=tmp / "ing.json",
+                                              repo_root=tmp).out_path
+            out = tmp / "deck"
+            code, output = run_cli(["import", str(html), "--adapter", "web-points",
+                                    "--ingest", str(manifest), "--out", str(out)])
+            self.assertEqual(code, 0, output)
+            cards = json.loads(
+                (out / "cards" / "01.json").read_text(encoding="utf-8"))["cards"]
+            self.assertEqual(len(cards), 1, cards)
+            self.assertEqual(cards[0]["source"], "block:2-4")
+            self.assertIn("先改配置", cards[0]["a"])
+            self.assertIn("再重启", cards[0]["a"])
+
 
 if __name__ == "__main__":
     unittest.main()

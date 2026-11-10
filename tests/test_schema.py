@@ -69,6 +69,22 @@ class SchemaTest(unittest.TestCase):
             self.assertTrue(report.ok)
             self.assertFalse(any("身份重复" in w for w in report.warnings))
 
+    def test_card_key_must_be_12_hex(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            spec = make_deck(Path(tmp), [
+                {"type": "qa", "q": "问题", "a": "答案", "pages": [1], "key": "not-a-key"}])
+            report = validate(spec)
+            self.assertFalse(report.ok)
+            self.assertTrue(any("key 必须是 12 位" in e for e in report.errors))
+
+    def test_card_key_overrides_text_identity(self):
+        from ankicards.schema import identity_seed
+        left = {"type": "qa", "q": "旧问题", "a": "旧答案", "key": "0123456789ab"}
+        right = {"type": "qa", "q": "改过的问题", "a": "改过的答案", "key": "0123456789ab"}
+        self.assertEqual(identity_seed("牌组", left), identity_seed("牌组", right))
+        other = {"type": "qa", "q": "旧问题", "a": "旧答案", "key": "0123456789ac"}
+        self.assertNotEqual(identity_seed("牌组", left), identity_seed("牌组", other))
+
     def test_identical_qa_duplicate_warns(self):
         with tempfile.TemporaryDirectory() as tmp:
             spec = make_deck(Path(tmp), [

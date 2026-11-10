@@ -35,16 +35,63 @@ from pathlib import Path
 from .errors import CardError
 
 CARD_TYPES = {"qa", "image", "cloze"}
-SOURCE_KINDS = {"pdf", "docx", "md", "txt", "web", "image", "unknown"}
+SOURCE_KINDS = {"pdf", "docx", "md", "txt", "web", "epub", "image", "unknown"}
 # pages 只表示 PDF 页码；unknown 为兼容未声明 source_kind 的历史牌组而放行（仅 warning）。
 PAGES_ALLOWED = {"pdf", "unknown"}
-CARD_FIELDS = {"type", "q", "a", "text", "extra", "pages", "source", "tags", "img"}
-# DOCX 的 source 定位：body 内第 N 段，或第 T 个表格的第 R 行。
-DOCX_LOCATOR_RE = re.compile(r"^(?:para:[1-9]\d*|table:[1-9]\d*/r[1-9]\d*)$")
-# TXT 的 source 定位：splitlines() 的物理行号（1 基，空行也计数）。
-TXT_LOCATOR_RE = re.compile(r"^line:[1-9]\d*$")
-# Web 的 source 定位：提取后的有效块序号（1 基，空块不计数）。
-WEB_LOCATOR_RE = re.compile(r"^block:[1-9]\d*$")
+CARD_FIELDS = {"type", "q", "a", "text", "extra", "pages", "source", "tags", "img", "key"}
+
+#: 稳定身份 key：12 位十六进制，由 plan compile --with-key 生成。
+#: 有 key 的卡按 key 定身份（改文字不会在 Anki 里变新卡）；没 key 的卡行为不变。
+CARD_KEY_RE = re.compile(r"^[0-9a-f]{12}$")
+# 区间后缀：-M（含首尾）；单定位不带后缀。
+_RANGE = r"(?:-[1-9]\d*)?"
+_TABLE_LOCATOR_RE = re.compile(r"^table:[1-9]\d*/r[1-9]\d*$")
+# DOCX 的 source 定位：body 内第 N 段（可 para:N-M），或第 T 个表格的第 R 行。
+DOCX_LOCATOR_RE = re.compile(
+    rf"^(?:para:[1-9]\d*{_RANGE}|table:[1-9]\d*/r[1-9]\d*)$")
+# TXT 的 source 定位：splitlines() 的物理行号（1 基，空行也计数），可 line:N-M。
+TXT_LOCATOR_RE = re.compile(rf"^line:[1-9]\d*{_RANGE}$")
+# Web 的 source 定位：提取后的有效块序号（1 基，空块不计数），可 block:N-M。
+WEB_LOCATOR_RE = re.compile(rf"^block:[1-9]\d*{_RANGE}$")
+# EPUB 的 source 定位：spine 第 C 章的第 M 个内容块（1 基）。
+EPUB_LOCATOR_RE = re.compile(r"^chapter:[1-9]\d*/p:[1-9]\d*$")
+
+
+def parse_locator(source: str) -> tuple[str, int, int] | None:
+    """解析线性定位，返回 (前缀, 起点, 终点)；table:T/rR 返回 (table, T, R)。
+
+    只做结构解析，不判断哪些定位真实存在，也不判断区间是否倒置——那是
+    validate 的事（存在性还要结合 ingest 产物）。
+    """
+    epub_match = EPUB_LOCATOR_RE.fullmatch(source)
+    if epub_match:
+        body = source.partition(":")[2]
+        chapter_text, _, para_text = body.partition("/p:")
+        try:
+            return "epub", int(chapter_text), int(para_text)
+        except ValueError:  # pragma: no cover - 正则已保证
+            return None
+    table_match = _TABLE_LOCATOR_RE.fullmatch(source)
+    if table_match:
+        body = source.partition(":")[2]
+        table_part, _, row_part = body.partition("/r")
+        try:
+            return "table", int(table_part), int(row_part)
+        except ValueError:  # pragma: no cover - 正则已保证
+            return None
+    for label, pattern in (("para", DOCX_LOCATOR_RE), ("line", TXT_LOCATOR_RE),
+                           ("block", WEB_LOCATOR_RE)):
+        if not pattern.fullmatch(source):
+            continue
+        head, _, body = source.partition(":")
+        start_text, _, end_text = body.partition("-")
+        try:
+            start = int(start_text)
+            end = int(end_text) if end_text else start
+        except ValueError:  # pragma: no cover - 正则已保证
+            return None
+        return head, start, end
+    return None
 
 
 
@@ -90,6 +137,11 @@ class DeckSpec:
     @property
     def has_txt_locators(self) -> bool:
         return any(TXT_LOCATOR_RE.fullmatch(str(card.get("source", "")).strip())
+                   for _, _, card in self.iter_cards())
+
+    @property
+    def has_epub_locators(self) -> bool:
+        return any(EPUB_LOCATOR_RE.fullmatch(str(card.get("source", "")).strip())
                    for _, _, card in self.iter_cards())
 
     @property
@@ -189,6 +241,9 @@ def card_identity(card: dict) -> tuple:
     image -> (img, q, a)     同题干同答案但不同图也不算重复
     cloze -> (text,)         cloze 的答案是隐藏的，文本即身份
     """
+    key = card.get("key")
+    if isinstance(key, str) and key:
+        return ("key", key)
     ctype = card.get("type", "qa")
     if ctype == "image":
         return ("image", str(card.get("img", "")), _norm(card.get("q", "")), _norm(card.get("a", "")))
@@ -263,6 +318,13 @@ def validate(spec: DeckSpec, page_count: int | None = None,
             if unknown:
                 rep.add_error(where, f"未知字段: {sorted(unknown)}（白名单之外的字段不会被构建）")
 
+            key = card.get("key")
+            if key is not None and (not isinstance(key, str) or not CARD_KEY_RE.fullmatch(key)):
+                rep.add_error(
+                    where,
+                    f"key 必须是 12 位小写十六进制字符串（当前 {key!r}）："
+                    "由 plan compile --with-key 生成，不要手写")
+
             ctype = card.get("type", "qa")
             if not isinstance(ctype, str) or ctype not in CARD_TYPES:
                 rep.add_error(where, f"未知 type={ctype!r}")
@@ -313,7 +375,8 @@ def validate(spec: DeckSpec, page_count: int | None = None,
                     rep.add_error(where, "source_kind=docx 时 source 必填（para:N 或 table:T/rR）")
                 elif not is_docx_locator:
                     rep.add_error(
-                        where, f"DOCX 定位格式非法: {source!r}（应为 para:N 或 table:T/rR）")
+                        where, f"DOCX 定位格式非法: {source!r}"
+                               "（应为 para:N、para:N-M 或 table:T/rR）")
                 elif locators is not None:
                     if source not in locators:
                         rep.add_error(where, f"定位 {source} 不在 ingest 产物中")
@@ -326,7 +389,7 @@ def validate(spec: DeckSpec, page_count: int | None = None,
                     rep.add_error(where, "source_kind=txt 时 source 必填（line:N）")
                 elif not is_txt_locator:
                     rep.add_error(
-                        where, f"TXT 定位格式非法: {source!r}（应为 line:N）")
+                        where, f"TXT 定位格式非法: {source!r}（应为 line:N 或 line:N-M）")
                 elif locators is not None:
                     if source not in locators:
                         rep.add_error(where, f"定位 {source} 不在 ingest 产物中")
@@ -339,12 +402,32 @@ def validate(spec: DeckSpec, page_count: int | None = None,
                     rep.add_error(where, "source_kind=web 时 source 必填（block:N）")
                 elif not is_web_locator:
                     rep.add_error(
-                        where, f"WEB 定位格式非法: {source!r}（应为 block:N）")
+                        where, f"WEB 定位格式非法: {source!r}（应为 block:N 或 block:N-M）")
                 elif locators is not None:
                     if source not in locators:
                         rep.add_error(where, f"定位 {source} 不在 ingest 产物中")
                     elif not (locators[source] or "").strip():
                         rep.add_error(where, f"定位 {source} 在 ingest 产物中没有文本（可能是空块）")
+
+            is_epub_locator = bool(EPUB_LOCATOR_RE.fullmatch(source))
+            if kind == "epub" or (kind == "unknown" and is_epub_locator):
+                if not source:
+                    rep.add_error(where, "source_kind=epub 时 source 必填（chapter:C/p:M）")
+                elif not is_epub_locator:
+                    rep.add_error(
+                        where, f"EPUB 定位格式非法: {source!r}（应为 chapter:C/p:M）")
+                elif locators is not None:
+                    if source not in locators:
+                        rep.add_error(where, f"定位 {source} 不在 ingest 产物中")
+                    elif not (locators[source] or "").strip():
+                        rep.add_error(
+                            where, f"定位 {source} 在 ingest 产物中没有文本（可能是空段落）")
+
+            parsed = parse_locator(source)
+            if (parsed is not None and parsed[0] not in ("table", "epub")
+                    and parsed[1] > parsed[2]):
+                rep.add_error(
+                    where, f"定位区间倒置: {source}（起点 {parsed[1]} 大于终点 {parsed[2]}）")
 
             tags = card.get("tags", [])
             if tags and not (isinstance(tags, list) and all(isinstance(t, str) for t in tags)):

@@ -105,6 +105,57 @@ class TxtPointsCliTest(unittest.TestCase):
                                     "--ingest", str(manifest)])
             self.assertEqual(code, 0, output)
 
+    def test_ingest_groups_merge_continuation_and_subitems(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            txt = root / "a.txt"
+            txt.write_text(
+                "部署手册\n"
+                "1. **环境准备**：安装 JDK 17，配置 JAVA_HOME。\n"
+                "   - Windows：使用安装包\n"
+                "   - macOS：brew install openjdk@17\n"
+                "\n"
+                "2. **启动服务**：执行 `java -jar app.jar`，默认端口 8080；\n"
+                "   生产环境需覆盖配置并开启 TLS。\n",
+                encoding="utf-8")
+            manifest = ingest_mod.ingest_txt(
+                txt, out=root / "ing.json", repo_root=root).out_path
+            deck_dir = root / "deck"
+            code, output = run_cli(["import", str(txt), "--adapter", "txt-points",
+                                    "--ingest", str(manifest), "--out", str(deck_dir),
+                                    "--name", "演示"])
+            self.assertEqual(code, 0, output)
+            cards = json.loads(
+                (deck_dir / "cards" / "01.json").read_text(encoding="utf-8"))["cards"]
+            by_question = {card["q"]: card for card in cards}
+
+            start = by_question["什么是启动服务？"]
+            self.assertEqual(start["source"], "line:6-7")
+            self.assertIn("生产环境需覆盖配置并开启 TLS。", start["a"])
+
+            env = by_question["什么是环境准备？"]
+            self.assertEqual(env["source"], "line:2-4")
+            self.assertIn("Windows", env["a"])
+            self.assertIn("macOS", env["a"])
+
+    def test_ingest_format_mismatch_is_exit_2(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            txt = root / "a.txt"
+            txt.write_text("1. **X**：Y\n", encoding="utf-8")
+            manifest = root / "web.json"
+            manifest.write_text(json.dumps({
+                "format": "web",
+                "units": [{"id": "block:1", "locator": "block:1",
+                           "kind": "paragraph", "text": "1. **X**：Y"}],
+                "groups": [{"id": "g1", "kind": "point", "locator": "block:1",
+                            "unit_locators": ["block:1"]}],
+            }, ensure_ascii=False), encoding="utf-8")
+            code, output = run_cli(["import", str(txt), "--adapter", "txt-points",
+                                    "--ingest", str(manifest), "--out", str(root / "deck")])
+            self.assertEqual(code, 2, output)
+            self.assertIn("format", output)
+
 
 if __name__ == "__main__":
     unittest.main()
