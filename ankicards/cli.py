@@ -222,11 +222,22 @@ def _print_plan_report(report, stats: dict) -> None:
     if stats.get("coverage") is not None:
         line += (f" / 覆盖率 {stats['covered']}/{stats['groups']}"
                  f"（{stats['coverage']:.0%}）")
+    for item in stats.get("also") or []:
+        total = item["hit"] + item["miss"]
+        line += f" / 交叉 {item['format']} {item['hit']}/{total}"
+        if item.get("split"):
+            line += f"（跨单元 {item['split']}）"
     density = stats.get("density") or {}
     if density.get("chars_per_card") is not None:
         line += (f" / 密度 {density['chars_per_card']:.0f} 字/张"
                  f"（目标 {density['min']}–{density['max']}）")
     print(line)
+
+
+def _add_also_arg(parser) -> None:
+    """--also 可重复：把同一份内容换一种格式再 ingest 一份，交叉校验引用。"""
+    parser.add_argument("--also", action="append", default=None, metavar="INGEST",
+                        help="第二份 ingest（另一种格式，可重复）：逐卡校验 quote 是否仍逐字命中")
 
 
 def _add_density_args(parser) -> None:
@@ -248,7 +259,8 @@ def cmd_plan_check(args) -> int:
                                profile=args.profile,
                                density=args.density,
                                density_min=args.density_min,
-                               density_max=args.density_max)
+                               density_max=args.density_max,
+                               also=[load_ingest(path) for path in (args.also or [])])
     _print_plan_report(report, stats)
     if report.ok:
         print("校验通过")
@@ -267,7 +279,8 @@ def cmd_plan_compile(args) -> int:
                                       profile=args.profile,
                                       density=args.density,
                                       density_min=args.density_min,
-                                      density_max=args.density_max)
+                                      density_max=args.density_max,
+                                      also=[load_ingest(path) for path in (args.also or [])])
     _print_plan_report(report, stats)
     if out is None:
         print("✗ 有错误，未写牌组")
@@ -471,6 +484,7 @@ def main(argv: list[str] | None = None) -> int:
     p_plan_check.add_argument("--min-coverage", type=float, default=None,
                               help="分组覆盖率阈值（0–1），低于即失败")
     _add_density_args(p_plan_check)
+    _add_also_arg(p_plan_check)
     p_plan_check.set_defaults(func=cmd_plan_check)
 
     p_plan_compile = plan_sub.add_parser("compile", help="校验通过后写出牌组目录")
@@ -482,6 +496,7 @@ def main(argv: list[str] | None = None) -> int:
     p_plan_compile.add_argument("--min-coverage", type=float, default=None,
                                 help="分组覆盖率阈值（0–1），低于即失败")
     _add_density_args(p_plan_compile)
+    _add_also_arg(p_plan_compile)
     p_plan_compile.add_argument("--force", action="store_true",
                                 help="目标目录已有卡片时也强制覆盖")
     p_plan_compile.add_argument("--with-key", action="store_true",

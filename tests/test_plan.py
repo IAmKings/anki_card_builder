@@ -480,3 +480,61 @@ class DensityTest(unittest.TestCase):
                          "--density-min", "20", "--density-max", "100"])
         self.assertEqual(code, 0)
         self.assertIn("密度 25 字/张（目标 20–100）", out.getvalue())
+
+
+def write_block_manifest(path: Path, blocks: list[str]) -> Path:
+    """web 形态的清单：block:N 定位，用来模拟「另一种格式切得不一样」。"""
+    units = [{"id": f"block:{i}", "locator": f"block:{i}", "kind": "paragraph",
+              "chars": len(text), "text": text}
+             for i, text in enumerate(blocks, 1)]
+    manifest = {"format": "web", "source": "page.html", "source_sha256": None,
+                "unit_kind": "block", "unit_count": len(units),
+                "total_chars": sum(u["chars"] for u in units),
+                "units": units, "warnings": []}
+    path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+class CrossFormatTest(unittest.TestCase):
+    """--also：同一批 quote 换一份 ingest 重校。"""
+
+    def setUp(self) -> None:
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.manifest = write_manifest(self.dir / "primary.json")
+        self.ingest = load_ingest(self.manifest)
+
+    def check(self, plan, **kwargs):
+        return check_plan(plan, self.ingest, **kwargs)
+
+    def test_quotes_hit_in_second_ingest(self) -> None:
+        blocks = ["部署手册", "1. **幂等**：同一请求重复执行结果一致。重试时必须带同一请求号。",
+                  "2. **端口**：默认监听 8080，生产需改。"]
+        other = load_ingest(write_block_manifest(self.dir / "other.json", blocks))
+        report, stats = self.check(make_plan([card_g2(), card_g3()]), also=[other])
+        self.assertEqual(report.errors, [])
+        self.assertEqual([w for w in report.warnings if w.startswith("also")], [])
+        self.assertEqual(stats["also"][0]["hit"], 2)
+        self.assertEqual(stats["also"][0]["miss"], 0)
+
+    def test_missing_quote_warns(self) -> None:
+        other = load_ingest(write_block_manifest(
+            self.dir / "other.json", ["部署手册", "1. **幂等**：结果一致。", "2. **端口**：默认 8080。"]))
+        report, stats = self.check(make_plan([card_g2()]), also=[other])
+        self.assertTrue(any("找不到逐字引用" in w for w in report.warnings))
+        self.assertEqual(stats["also"][0]["miss"], 1)
+
+    def test_split_across_units_is_reported(self) -> None:
+        # 第二份把一句拆成两块，整段拼接后仍能命中
+        blocks = ["部署手册", "1. **幂等**：同一请求重复执行结果一致。",
+                  "重试时必须带同一请求号。", "2. **端口**：默认监听 8080，生产需改。"]
+        other = load_ingest(write_block_manifest(self.dir / "other.json", blocks))
+        report, stats = self.check(make_plan([card_g2()]), also=[other])
+        self.assertEqual(stats["also"][0]["hit"], 1)
+        self.assertEqual(stats["also"][0]["split"], 1)
+        self.assertTrue(any("跨单元拼接" in w for w in report.warnings))
+
+    def test_same_format_warns(self) -> None:
+        report, _ = self.check(make_plan([card_g2()]), also=[self.ingest])
+        self.assertTrue(any("同为 txt" in w for w in report.warnings))

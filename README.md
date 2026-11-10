@@ -93,7 +93,7 @@ python3 -m ankicards ingest <手册.pdf|笔记.docx|笔记.txt|book.epub|page.ht
 # MOBI/AZW 不支持：先用 Calibre ebook-convert 转成 EPUB，再走上面这条
 
 # 2) 文档抽取：agent/人只写 plan.json（每条带逐字 quote），先校验再编译
-python3 -m ankicards plan check   plan.json --ingest .work/ingest/xxx.json --min-coverage 0.9 [--profile novel|essay] [--density essay]
+python3 -m ankicards plan check   plan.json --ingest .work/ingest/xxx.json --min-coverage 0.9 [--profile novel|essay] [--density essay] [--also 另一格式.json]
 python3 -m ankicards plan compile plan.json --out <牌组目录> --ingest .work/ingest/xxx.json [--with-key] [--profile novel|essay] [--density essay]
 python3 -m ankicards plan diff    plan.json --deck <牌组目录>
 
@@ -186,6 +186,11 @@ DOCX 摄取限制：压缩包 ≤20 MB、解压后 ≤200 MB、块数 ≤5000（
 | `fact` | 事实/数字 | quote 里应有数字或日期，否则提醒 |
 
 `plan compile` 会把卡型写成卡片标签 `kind:<kind>`（卡片字段不变）。
+
+可选 `--also <另一份 ingest>`（可重复）做**跨格式交叉校验**：同一本书的 EPUB/PDF/TXT
+定位体系不同（`chapter:C/p:M`、`page:N`、`line:N`），但正文应当一致。它会拿每张卡的
+`quote` 去第二份里逐字重找，报告「交叉 pdf 88/88（跨单元 3）」。找不到说明两份文本不一致
+或被格式改写；能命中但要跨单元拼接，说明该格式的定位无法单点溯源（PDF 换页）。
 
 可选 `--density {manual,novel,essay}` 按口径检查密度：平均「读过的原文字数 / 卡数」落在
 `manual` 200–700、`novel` 400–1200、`essay` 600–1600 之间；太密提示「可能在硬拆」，

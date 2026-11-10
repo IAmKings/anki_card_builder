@@ -180,6 +180,9 @@ PDF/DOCX/TXT/Web/MD 只是入口不同，最后都汇入同一个 `DeckSpec` 和
 - PDF 用 `pages`；跨页段落写 `page:N-M`（`plan compile` 会写成 `pages:[N, M]`，背面同时显示两页）；非 PDF 用 `source`；`source_kind=docx` 时 `source` 必须是 `para:N` / `para:N-M` / `table:T/rR`，`source_kind=txt` 时必须是 `line:N` 或 `line:N-M`，`source_kind=web` 时必须是 `block:N` 或 `block:N-M`，并与 ingest 对齐（区间必须整体出现在 ingest 里，起点不能大于终点）。
 - 图片题先在 `crops.json` 写 `page` + `rect`。
 
+同一本书有 EPUB/PDF/TXT 多份时，用 `--also` 交叉校验：quote 在另一种格式里也要逐字命中
+（`交叉 pdf 88/88（跨单元 3）`）。PDF 报「跨单元」不是错误，是换页切断——该格式单页无法整句溯源。
+
 **完成标准**：走 plan 时 `plan check` 无 error、覆盖率与未出卡理由都说得通；直写卡片时没有未知字段、qa/image 的 q/a 齐全；每条溯源都能被 `check --ingest` 接受；`import-report.json` 里的 error 级可疑项都看过并解释过（不一定要清零，但不能没看）。
 
 ### 4. 裁图自检（仅图片题）
@@ -212,7 +215,7 @@ python3 -m ankicards verify output/xxx.apkg
 | `python3 -m ankicards ingest <pdf|docx|txt|html|url>` | 生成逐页/逐段/逐行/逐块文本清单 | PDF 仅文本型；DOCX 上限 20 MB / 解压后 200 MB / 5000 块；TXT 上限 10 MB / 50000 行；Web 5 MB / 5000 块 / 20 秒 / 5 次 redirect，静态 HTML |
 | `python3 -m ankicards import --list` | 列出适配器 | 当前：`android-md`、`mqtt-md`、`docx-points`、`txt-points`、`web-points` |
 | `python3 -m ankicards import <src> --adapter <name> --out <deck>` | 源格式 → cards JSON | 已有卡片时需 `--force` 才覆盖；同时写 `import-report.json`（未出卡理由 + 内容规则命中）；`--strict` 让 error 级内容问题直接失败且不写牌组；`--ingest` 按 ingest 的分组合并续行/子项，并校验源文件 sha256 |
-| `python3 -m ankicards plan check <plan.json> --ingest <清单>` | 校验引用锚定/理由枚举/覆盖率/密度 | 每条卡必须有 `quote`；数字必须能在 `quote` 找到；条目区间不得相交；`--min-coverage` 设分组覆盖率下限；`--density` 只提示密度与卡型配额（不拦编译） |
+| `python3 -m ankicards plan check <plan.json> --ingest <清单> [--also <另一格式清单>]` | 校验引用锚定/理由枚举/覆盖率/密度/跨格式一致性 | 每条卡必须有 `quote`；数字必须能在 `quote` 找到；条目区间不得相交；`--min-coverage` 设分组覆盖率下限；`--density` 只提示密度与卡型配额（不拦编译）；`--also` 拿 quote 去另一种格式里重找，验证内容一致 |
 | `python3 -m ankicards plan compile <plan.json> --out <deck> --ingest <清单>` | 校验通过才写牌组 | 有 error 不写盘；同时写 `import-report.json`（未出卡理由 + 内容规则） |
 | `python3 -m ankicards plan diff <plan.json> --deck <deck>` | 对比 plan 与现有牌组 | 按归一后的卡面文本比对，报告新增/删除/改动；退出码恒为 0 |
 | `python3 -m ankicards check <deck>` | 数据契约校验 | 加 `--pdf` 查页码/裁图；加 `--ingest` 开溯源闸门；`--txt`/`--docx`/`--html` 做同源校验 |

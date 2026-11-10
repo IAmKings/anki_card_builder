@@ -215,6 +215,67 @@ def _covered_chars(entries: list[dict], ingest: IngestData) -> int:
     return sum(len(locator_text(entry["locator"], ingest) or "") for entry in entries)
 
 
+def _also_texts(ingest: IngestData) -> tuple[str, list[tuple[str, str]]]:
+    """第二份 ingest 的全文与「原子单元」文本，都按忽略空白归一。
+
+    原子单元只取不跨区间的定位（`line:3`、`page:7`、`block:2`），
+    区间定位（`line:3-7`）是拼接出来的，用它判断「是否跨单元」会失真。
+    """
+    if ingest.pages:
+        atomic = [(f"page:{number}", _without_space(text or ""))
+                  for number, text in sorted(ingest.pages.items())]
+        full = "".join(text for _, text in atomic)
+        return full, atomic
+    atomic = []
+    for locator, text in ingest.locators.items():
+        if not isinstance(locator, str):
+            continue
+        tail = locator.split(":", 1)[-1]
+        if "-" in tail:          # 区间/表号以外：区间是拼接文本
+            continue
+        atomic.append((locator, _without_space(text or "")))
+    return "".join(text for _, text in atomic), atomic
+
+
+def _cross_check(entries: list[dict], also: list[IngestData], report: Report,
+                 stats: dict, primary_format: str | None = None) -> None:
+    """把每张卡的 quote 拿到第二份（第三份…）ingest 里重校一遍。
+
+    用途：同一本书的 epub/pdf/txt 分别 ingest，定位体系不同（chapter:C/p:M、page:N、line:N），
+    但正文应当一致。逐字命中说明两份内容相同；找不到说明有改写、缺段或解析差异。
+    """
+    results: list[dict] = []
+    for ingest in also:
+        fmt = getattr(ingest, "format", None) or "unknown"
+        if primary_format and fmt == primary_format:
+            report.add_warning(
+                "also", f"第二份 ingest 与主 ingest 同为 {fmt}：交叉校验意义有限，换成另一种格式才能验证")
+        full, atomic = _also_texts(ingest)
+        hit = miss = split = 0
+        for entry in entries:
+            if entry["kind"] != "card":
+                continue
+            quote = _without_space(entry.get("quote") or "")
+            if not quote:
+                continue
+            if quote not in full:
+                miss += 1
+                report.add_warning(
+                    entry["where"],
+                    f"在第二份 ingest（{fmt}）里找不到逐字引用：两份文本不一致，"
+                    "或被格式改写（引号、全半角、断字）")
+            else:
+                hit += 1
+                if not any(quote in text for _, text in atomic):
+                    split += 1
+        results.append({"format": fmt, "hit": hit, "miss": miss, "split": split})
+        if split:
+            report.add_warning(
+                "also", f"{split} 张引用在 {fmt} 里要跨单元拼接才命中（换页/换块切断）："
+                        "不是文本不一致，但该格式的定位无法单点溯源")
+    stats["also"] = results
+
+
 NOVEL_SKIP_REASONS = ("plot_summary", "spoiler", "character_note")
 MAX_QUOTE_CHARS_NOVEL = 800
 
@@ -255,7 +316,8 @@ def check_plan(plan: dict, ingest: IngestData,
                profile: str | None = None,
                density: str | None = None,
                density_min: int | None = None,
-               density_max: int | None = None) -> tuple[Report, dict]:
+               density_max: int | None = None,
+               also: list[IngestData] | None = None) -> tuple[Report, dict]:
     """校验 plan；返回 (报告, 统计)。有 error 时不应编译。"""
     report = Report()
     stats: dict = {"cards": 0, "skipped": 0, "groups": len(ingest.groups or []),
@@ -510,6 +572,10 @@ def check_plan(plan: dict, ingest: IngestData,
         report.add_warning(
             "coverage", "ingest 产物既没有 groups 也没有页面，无法计算覆盖率")
 
+    if also:
+        _cross_check(entries, also, report, stats,
+                     getattr(ingest, "format", None))
+
     if density is not None:
         if density not in DENSITY_BANDS:
             report.add_error(
@@ -625,11 +691,13 @@ def compile_plan(plan: dict, ingest: IngestData, out: str | Path,
                  profile: str | None = None,
                  density: str | None = None,
                  density_min: int | None = None,
-                 density_max: int | None = None) -> tuple[Report, dict, Path | None]:
+                 density_max: int | None = None,
+                 also: list[IngestData] | None = None) -> tuple[Report, dict, Path | None]:
     """校验通过才写牌组；返回 (报告, 统计, 输出目录或 None)。"""
     report, stats = check_plan(plan, ingest, min_coverage=min_coverage,
                                profile=profile, density=density,
-                               density_min=density_min, density_max=density_max)
+                               density_min=density_min, density_max=density_max,
+                               also=also)
     if not report.ok:
         return report, stats, None
     if not plan.get("cards"):
