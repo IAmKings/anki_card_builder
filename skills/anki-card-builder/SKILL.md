@@ -142,6 +142,9 @@ PDF/DOCX/TXT/Web/MD 只是入口不同，最后都汇入同一个 `DeckSpec` 和
 - **散文/随笔**：每篇 3–5 张是实测的合理区间，全书 40–70 张。同一段里前半观点、
   后半金句，可以出两张卡（quote 不重叠即可），不必二选一。
 - 卡量超过「每 500 字一张」就要停下来问：是不是在把信息硬拆成卡片？注意力会被稀释。
+- 想让这条判断可执行，用 `plan check --density {manual,novel,essay}`：按「读过的原文字数 / 卡数」
+  算密度，散文 600–1600、手册 200–700、小说 400–1200；散文口径出现 `fact` 卡、手册口径
+  `fact` 不足 30% 也会提示。它只给 warning，不拦编译。
 
 ## 工作流
 
@@ -168,7 +171,7 @@ PDF/DOCX/TXT/Web/MD 只是入口不同，最后都汇入同一个 `DeckSpec` 和
 
 - 文档抽取（推荐）：agent 只写 `plan.json`——每条要么是卡（`locator` + `quote` + `q`/`a`），要么是未出卡（`locator` + `reason`）。`quote` 必须从定位文本里逐字复制（空白差异忽略）；卡面里的数字必须出现在 `quote` 里。然后：
   ```bash
-  python3 -m ankicards plan check  plan.json --ingest .work/ingest/xxx.json --min-coverage 0.9
+  python3 -m ankicards plan check  plan.json --ingest .work/ingest/xxx.json --min-coverage 0.9 [--density essay]
   python3 -m ankicards plan compile plan.json --out <deck> --ingest .work/ingest/xxx.json
   python3 -m ankicards plan diff    plan.json --deck <deck>   # 这次会新增/删除/改动哪些卡
   ```
@@ -209,7 +212,7 @@ python3 -m ankicards verify output/xxx.apkg
 | `python3 -m ankicards ingest <pdf|docx|txt|html|url>` | 生成逐页/逐段/逐行/逐块文本清单 | PDF 仅文本型；DOCX 上限 20 MB / 解压后 200 MB / 5000 块；TXT 上限 10 MB / 50000 行；Web 5 MB / 5000 块 / 20 秒 / 5 次 redirect，静态 HTML |
 | `python3 -m ankicards import --list` | 列出适配器 | 当前：`android-md`、`mqtt-md`、`docx-points`、`txt-points`、`web-points` |
 | `python3 -m ankicards import <src> --adapter <name> --out <deck>` | 源格式 → cards JSON | 已有卡片时需 `--force` 才覆盖；同时写 `import-report.json`（未出卡理由 + 内容规则命中）；`--strict` 让 error 级内容问题直接失败且不写牌组；`--ingest` 按 ingest 的分组合并续行/子项，并校验源文件 sha256 |
-| `python3 -m ankicards plan check <plan.json> --ingest <清单>` | 校验引用锚定/理由枚举/覆盖率 | 每条卡必须有 `quote`；数字必须能在 `quote` 找到；条目区间不得相交；`--min-coverage` 设分组覆盖率下限 |
+| `python3 -m ankicards plan check <plan.json> --ingest <清单>` | 校验引用锚定/理由枚举/覆盖率/密度 | 每条卡必须有 `quote`；数字必须能在 `quote` 找到；条目区间不得相交；`--min-coverage` 设分组覆盖率下限；`--density` 只提示密度与卡型配额（不拦编译） |
 | `python3 -m ankicards plan compile <plan.json> --out <deck> --ingest <清单>` | 校验通过才写牌组 | 有 error 不写盘；同时写 `import-report.json`（未出卡理由 + 内容规则） |
 | `python3 -m ankicards plan diff <plan.json> --deck <deck>` | 对比 plan 与现有牌组 | 按归一后的卡面文本比对，报告新增/删除/改动；退出码恒为 0 |
 | `python3 -m ankicards check <deck>` | 数据契约校验 | 加 `--pdf` 查页码/裁图；加 `--ingest` 开溯源闸门；`--txt`/`--docx`/`--html` 做同源校验 |

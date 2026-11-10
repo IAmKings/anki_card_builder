@@ -93,8 +93,8 @@ python3 -m ankicards ingest <手册.pdf|笔记.docx|笔记.txt|book.epub|page.ht
 # MOBI/AZW 不支持：先用 Calibre ebook-convert 转成 EPUB，再走上面这条
 
 # 2) 文档抽取：agent/人只写 plan.json（每条带逐字 quote），先校验再编译
-python3 -m ankicards plan check   plan.json --ingest .work/ingest/xxx.json --min-coverage 0.9 [--profile novel|essay]
-python3 -m ankicards plan compile plan.json --out <牌组目录> --ingest .work/ingest/xxx.json [--with-key] [--profile novel|essay]
+python3 -m ankicards plan check   plan.json --ingest .work/ingest/xxx.json --min-coverage 0.9 [--profile novel|essay] [--density essay]
+python3 -m ankicards plan compile plan.json --out <牌组目录> --ingest .work/ingest/xxx.json [--with-key] [--profile novel|essay] [--density essay]
 python3 -m ankicards plan diff    plan.json --deck <牌组目录>
 
 # 3) 校验卡片数据；--ingest 启用溯源闸门（页码/定位必须存在且有文本）
@@ -186,6 +186,11 @@ DOCX 摄取限制：压缩包 ≤20 MB、解压后 ≤200 MB、块数 ≤5000（
 | `fact` | 事实/数字 | quote 里应有数字或日期，否则提醒 |
 
 `plan compile` 会把卡型写成卡片标签 `kind:<kind>`（卡片字段不变）。
+
+可选 `--density {manual,novel,essay}` 按口径检查密度：平均「读过的原文字数 / 卡数」落在
+`manual` 200–700、`novel` 400–1200、`essay` 600–1600 之间；太密提示「可能在硬拆」，
+太疏提示「可能漏了内容」。散文口径下出现 `fact` 卡、手册口径下 `fact` 占比低于 30%
+也会提示。**密度只给 warning，不拦编译**——它是启发式，最终由人判断。
 
 **同一段可以出多张卡**：只要两张卡的 `quote` 在原文里是不重叠的两句，就允许共用同一
 定位；`quote` 重叠或完全相同才报错。同一段既出卡又记为未出卡只给 warning（确认不是

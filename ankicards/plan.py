@@ -189,6 +189,32 @@ def _group_coverage(entries: list[dict], groups: list[dict]) -> tuple[int, list[
     return covered, uncovered
 
 
+def _covered_chars(entries: list[dict], ingest: IngestData) -> int:
+    """条目实际读过的原文总字数（按 group 去重，PDF 按页去重）。
+
+    密度的分母是「卡数」，分子必须是「读过的原文」，不是卡片自己那一小段——
+    否则一段 70 字的散文出两张卡会被算成 35 字/张，永远报「太密」。
+    """
+    groups = ingest.groups or []
+    if groups:
+        total = 0
+        for group in groups:
+            locator = group.get("locator")
+            if not isinstance(locator, str) or not locator:
+                continue
+            if any(_overlaps(locator, entry["locator"]) for entry in entries):
+                total += int(group.get("chars") or 0)
+        return total
+    if ingest.pages:
+        pages: set[int] = set()
+        for entry in entries:
+            parsed = parse_plan_locator(entry["locator"])
+            if parsed is not None and parsed[0] == "page":
+                pages.update(range(parsed[1], parsed[2] + 1))
+        return sum(len(ingest.pages.get(number) or "") for number in pages)
+    return sum(len(locator_text(entry["locator"], ingest) or "") for entry in entries)
+
+
 NOVEL_SKIP_REASONS = ("plot_summary", "spoiler", "character_note")
 MAX_QUOTE_CHARS_NOVEL = 800
 
@@ -204,6 +230,16 @@ PROFILES = {
 }
 PROFILE_NAMES = tuple(PROFILES)
 
+# 密度带：平均多少字原文支撑一张卡。太密＝在硬拆信息，太疏＝漏了值得出的内容。
+# 只做提示（warning），不拦编译：密度是启发式，最终由人判断。
+DENSITY_BANDS = {
+    "manual": (200, 700),
+    "novel": (400, 1200),
+    "essay": (600, 1600),
+}
+DENSITY_NAMES = tuple(DENSITY_BANDS)
+MANUAL_FACT_SHARE_MIN = 0.3
+
 
 def _profile_quote_max(profile: str | None) -> int:
     return PROFILES.get(profile or "manual", PROFILES["manual"])["quote_max"]
@@ -216,7 +252,10 @@ def _allowed_reasons(profile: str | None) -> tuple[str, ...]:
 
 def check_plan(plan: dict, ingest: IngestData,
                min_coverage: float | None = None,
-               profile: str | None = None) -> tuple[Report, dict]:
+               profile: str | None = None,
+               density: str | None = None,
+               density_min: int | None = None,
+               density_max: int | None = None) -> tuple[Report, dict]:
     """校验 plan；返回 (报告, 统计)。有 error 时不应编译。"""
     report = Report()
     stats: dict = {"cards": 0, "skipped": 0, "groups": len(ingest.groups or []),
@@ -471,6 +510,51 @@ def check_plan(plan: dict, ingest: IngestData,
         report.add_warning(
             "coverage", "ingest 产物既没有 groups 也没有页面，无法计算覆盖率")
 
+    if density is not None:
+        if density not in DENSITY_BANDS:
+            report.add_error(
+                "density", f"必须是 {'/'.join(DENSITY_NAMES)} 之一，实际为 {density!r}")
+        else:
+            low, high = DENSITY_BANDS[density]
+            if density_min is not None:
+                low = density_min
+            if density_max is not None:
+                high = density_max
+            if low > high:
+                report.add_error("density", f"下限 {low} 大于上限 {high}")
+            else:
+                chars = _covered_chars(entries, ingest)
+                cards = stats["cards"]
+                per_card = round(chars / cards, 1) if cards and chars else None
+                stats["density"] = {"profile": density, "min": low, "max": high,
+                                    "chars": chars, "cards": cards,
+                                    "chars_per_card": per_card}
+                if per_card is not None:
+                    if per_card < low:
+                        report.add_warning(
+                            "density",
+                            f"平均 {per_card:.0f} 字/张，密于 {density} 口径的 "
+                            f"{low}–{high}：可能把信息硬拆成了卡片")
+                    elif per_card > high:
+                        report.add_warning(
+                            "density",
+                            f"平均 {per_card:.0f} 字/张，疏于 {density} 口径的 "
+                            f"{low}–{high}：可能漏了值得出的内容，或整段只做了概括")
+                kinds = stats["kinds"]
+                total_kinds = sum(kinds.values())
+                if density == "essay" and kinds.get("fact"):
+                    report.add_warning(
+                        "density",
+                        f"散文口径下出现了 {kinds['fact']} 张 fact 卡："
+                        "这类文本没有可检验的事实，应换成 claim/style/phrase")
+                if density == "manual" and total_kinds:
+                    share = kinds.get("fact", 0) / total_kinds
+                    if share < MANUAL_FACT_SHARE_MIN:
+                        report.add_warning(
+                            "density",
+                            f"手册口径下 fact 只占 {share:.0%}（建议 ≥"
+                            f"{MANUAL_FACT_SHARE_MIN:.0%}）：考点型资料应以可核对的事实为主")
+
     return report, stats
 
 
@@ -538,10 +622,14 @@ def compile_plan(plan: dict, ingest: IngestData, out: str | Path,
                  force: bool = False,
                  min_coverage: float | None = None,
                  with_key: bool = False,
-                 profile: str | None = None) -> tuple[Report, dict, Path | None]:
+                 profile: str | None = None,
+                 density: str | None = None,
+                 density_min: int | None = None,
+                 density_max: int | None = None) -> tuple[Report, dict, Path | None]:
     """校验通过才写牌组；返回 (报告, 统计, 输出目录或 None)。"""
     report, stats = check_plan(plan, ingest, min_coverage=min_coverage,
-                               profile=profile)
+                               profile=profile, density=density,
+                               density_min=density_min, density_max=density_max)
     if not report.ok:
         return report, stats, None
     if not plan.get("cards"):

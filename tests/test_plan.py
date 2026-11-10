@@ -413,3 +413,70 @@ class PageRangeTest(unittest.TestCase):
         report, _ = check_plan(self.plan("page:2-1", quote="第二页接着说完。"),
                                self.ingest())
         self.assertTrue(any("区间倒置" in msg for msg in report.errors))
+
+
+class DensityTest(unittest.TestCase):
+    """--density：密度带与卡型配额只提示、不拦编译。"""
+
+    def setUp(self) -> None:
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.manifest = write_manifest(self.dir / "demo.json")
+        self.ingest = load_ingest(self.manifest)
+
+    def check(self, plan, **kwargs):
+        return check_plan(plan, self.ingest, **kwargs)
+
+    def density_warnings(self, report, needle=""):
+        return [w for w in report.warnings if w.startswith("density") and needle in w]
+
+    def test_within_band_reports_no_density_warning(self) -> None:
+        # g2 30 字 + g3 20 字 = 50 字，2 张卡 = 25 字/张
+        report, stats = self.check(make_plan([card_g2(), card_g3()]),
+                                   density="manual", density_min=20, density_max=100)
+        self.assertEqual(report.errors, [])
+        self.assertEqual(self.density_warnings(report, "密于"), [])
+        self.assertEqual(self.density_warnings(report, "疏于"), [])
+        self.assertAlmostEqual(stats["density"]["chars_per_card"], 25.0, places=1)
+        self.assertEqual(stats["density"]["cards"], 2)
+
+    def test_too_dense_warns_but_does_not_block(self) -> None:
+        report, stats = self.check(make_plan([card_g2(), card_g3()]),
+                                   density="essay")
+        self.assertEqual(report.errors, [])
+        self.assertTrue(self.density_warnings(report, "密于"))
+        self.assertAlmostEqual(stats["density"]["chars_per_card"], 25.0, places=1)
+
+    def test_too_sparse_warns(self) -> None:
+        report, _ = self.check(make_plan([card_g2()]),
+                               density="manual", density_min=5, density_max=10)
+        self.assertTrue(self.density_warnings(report, "疏于"))
+
+    def test_essay_profile_flags_fact_cards(self) -> None:
+        report, _ = self.check(make_plan([card_g3(kind="fact")]), density="essay")
+        self.assertTrue(self.density_warnings(report, "fact 卡"))
+
+    def test_manual_profile_requires_fact_share(self) -> None:
+        report, _ = self.check(make_plan([card_g2(), card_g3()]), density="manual")
+        self.assertTrue(self.density_warnings(report, "fact 只占"))
+
+    def test_min_greater_than_max_is_error(self) -> None:
+        report, _ = self.check(make_plan([card_g2()]),
+                               density="manual", density_min=900, density_max=100)
+        self.assertTrue(any("下限" in e for e in report.errors))
+
+    def test_cli_prints_density_line(self) -> None:
+        import io
+        from contextlib import redirect_stdout
+        plan_path = self.dir / "plan.json"
+        plan_path.write_text(json.dumps(make_plan([card_g2(), card_g3()]),
+                                        ensure_ascii=False), encoding="utf-8")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = main(["plan", "check", str(plan_path),
+                         "--ingest", str(self.manifest),
+                         "--density", "manual",
+                         "--density-min", "20", "--density-max", "100"])
+        self.assertEqual(code, 0)
+        self.assertIn("密度 25 字/张（目标 20–100）", out.getvalue())
