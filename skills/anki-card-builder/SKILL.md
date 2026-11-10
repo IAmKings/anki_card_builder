@@ -27,6 +27,7 @@ PDF/DOCX/TXT/Web/MD 只是入口不同，最后都汇入同一个 `DeckSpec` 和
 ## 何时不用
 
 - 扫描版 PDF、图片型 EPUB/漫画：没有文本层，本工具不做 OCR；直接说明无法处理。
+- MOBI/AZW：没有 ingest 路径（未实现 PalmDOC 解析）。需要时先用 Calibre `ebook-convert` 转成 EPUB，转换步骤不进本仓库。
 - 加密 PDF/DOCX：先让用户解密，本工具不破解。
 - 需要登录、Cookie、JS 渲染或整站爬取的网页：本工具只抓单个静态 HTML；让用户保存页面/导出正文，或先用其他工具转成 Markdown/TXT。
 - 散文/手册/讲义等非“标题 + 编号点”结构的内容：**禁止**走 `txt-points`/`docx-points`/`web-points`，也不要承诺“自动抽卡”。先 `ingest` 拿到定位，再逐条写卡，并逐条确认这个知识点真的成立；判定规则与失败模式见 [docs/extraction-policy.md](../../docs/extraction-policy.md)。
@@ -41,6 +42,7 @@ PDF/DOCX/TXT/Web/MD 只是入口不同，最后都汇入同一个 `DeckSpec` 和
 | 结构化题库 | 有成对的题干/答案、或“标题 + 编号点 + 冒号解释”的稳定版式 | 可走 `*-points` / `android-md` / `mqtt-md` |
 | 手册 / 讲义 / 散文 | 成段叙述；编号点只是排版；有大量“因为/因此/通常/注意” | `ingest` → 写 `plan.json` → `plan compile`（推荐）；或逐条写卡（**不要**套 `*-points`） |
 | 小说 / 电子书 | EPUB，章节 + 成段叙述 | `ingest book.epub` → 写 plan（`--profile novel`）→ `plan compile --profile novel --with-key` |
+| 散文 / 随笔集 | EPUB 或纯文本，段落完整、无编号 | `ingest` → 写 plan（`--profile essay`，quote 上限 800）→ `plan compile --profile essay --with-key` |
 | 已发布牌组 | 目录里有 `deck.json` 且已分发 | 只改卡不改身份；**禁止**用任何自动/生成式流程重跑 |
 
 三条硬性红线：
@@ -82,6 +84,19 @@ PDF/DOCX/TXT/Web/MD 只是入口不同，最后都汇入同一个 `DeckSpec` 和
 | 图片题 | `crops.json` 定裁图框，构建必须给 `--pdf` | `check/build --pdf --ingest` |
 
 `txt-points`/`web-points` 只接受“标题 + `1. **关键词**：解释`”结构；`import --list` 是适配器列表的唯一真值。
+
+## 卡型与密度
+
+写 plan 时给每张卡标 `kind`：`claim`（观点/判断）、`style`（写法/结构/语气）、
+`phrase`（金句）、`fact`（事实/数字）。不同卡型的验收标准不同（金句要能整句背、
+文风卡要有足够长的样本、事实卡要有可核对的数字），`plan check` 会按卡型提醒。
+
+密度跟着文体走，不要按字数硬凑：
+
+- **知识型/考点型文档**（题库、规格、教程）：一条信息点一张卡，密度可以很高。
+- **散文/随笔**：每篇 3–5 张是实测的合理区间，全书 40–70 张。同一段里前半观点、
+  后半金句，可以出两张卡（quote 不重叠即可），不必二选一。
+- 卡量超过「每 500 字一张」就要停下来问：是不是在把信息硬拆成卡片？注意力会被稀释。
 
 ## 工作流
 

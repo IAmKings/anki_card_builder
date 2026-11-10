@@ -90,10 +90,11 @@
 ```bash
 # 1) 源 → 可寻址文本（PDF/DOCX/TXT/HTML/URL；默认写 .work/ingest/，被 gitignore）
 python3 -m ankicards ingest <手册.pdf|笔记.docx|笔记.txt|book.epub|page.html|https://...>
+# MOBI/AZW 不支持：先用 Calibre ebook-convert 转成 EPUB，再走上面这条
 
 # 2) 文档抽取：agent/人只写 plan.json（每条带逐字 quote），先校验再编译
-python3 -m ankicards plan check   plan.json --ingest .work/ingest/xxx.json --min-coverage 0.9 [--profile novel]
-python3 -m ankicards plan compile plan.json --out <牌组目录> --ingest .work/ingest/xxx.json [--with-key] [--profile novel]
+python3 -m ankicards plan check   plan.json --ingest .work/ingest/xxx.json --min-coverage 0.9 [--profile novel|essay]
+python3 -m ankicards plan compile plan.json --out <牌组目录> --ingest .work/ingest/xxx.json [--with-key] [--profile novel|essay]
 python3 -m ankicards plan diff    plan.json --deck <牌组目录>
 
 # 3) 校验卡片数据；--ingest 启用溯源闸门（页码/定位必须存在且有文本）
@@ -158,11 +159,37 @@ DOCX 摄取限制：压缩包 ≤20 MB、解压后 ≤200 MB、块数 ≤5000（
 ```
 
 `plan.json` 是抽取环节的唯一接缝：机械适配器、人、离线 LLM 都只写它，
-由 `plan check` 做确定性校验（quote 必须是定位文本的逐字子串、答案里的数字必须能在
-quote 中找到、理由属于枚举、条目区间不相交、可选覆盖率下限），再由
-`plan compile` 编译成 `cards/*.json`。它不在 `load_spec` 的读取范围内，
-所以放进牌组目录不会影响 `check`/`build`。`quote` 不写进卡片（Anki 字段固定），
-plan 本身就是「这张卡从哪句话来」的审计记录。
+由 `plan check` 做确定性校验，再由 `plan compile` 编译成 `cards/*.json`。
+它不在 `load_spec` 的读取范围内，所以放进牌组目录不会影响 `check`/`build`。
+`quote` 不写进卡片（Anki 字段固定），plan 本身就是「这张卡从哪句话来」的审计记录。
+
+`plan check` 校验的是可判定的事实，不判断卡片值不值得背：
+
+| 校验 | 规则 |
+|---|---|
+| 引用 | `quote` 必须是定位文本的逐字子串（只忽略空白差异，标点必须一致） |
+| 数字 | 答案里出现的每个数字都必须能在 `quote` 里找到；问题里的数字只提醒 |
+| 长度 | `quote` 8–300 字；`--profile novel`/`essay` 放宽到 800 字 |
+| 定位 | 必须存在于 ingest 产物、文本非空、区间起点不大于终点 |
+| 理由 | `skipped.reason` 必须属于枚举；`--profile` 决定可用语义理由 |
+| 覆盖率 | 可选 `--min-coverage`，低于阈值报错 |
+| 专名 | 卡面出现原文没有的英文标识符只提醒（可能是自造术语） |
+| 卡型 | 见下表，按 `kind` 分别提醒 |
+
+卡片可选 `kind` 标注卡型，`plan check` 按卡型给不同标准（缺省只提醒）：
+
+| kind | 含义 | 按卡型检查 |
+|---|---|---|
+| `claim` | 观点/判断 | 问题建议写成问句（`？` 结尾） |
+| `style` | 写法/结构/语气 | quote 建议 ≥30 字，太短看不出写法 |
+| `phrase` | 金句 | quote 上限 60 字，太长背不下来 |
+| `fact` | 事实/数字 | quote 里应有数字或日期，否则提醒 |
+
+`plan compile` 会把卡型写成卡片标签 `kind:<kind>`（卡片字段不变）。
+
+**同一段可以出多张卡**：只要两张卡的 `quote` 在原文里是不重叠的两句，就允许共用同一
+定位；`quote` 重叠或完全相同才报错。同一段既出卡又记为未出卡只给 warning（确认不是
+重复记账）。未出卡条目之间仍然互斥。
 
 字段定义以 `ankicards/schema.py` 为唯一真值；`skills/anki-card-builder/SKILL.md`
 记录的是流程与判断（怎么选路径、怎么裁图、怎么校对），不复制字段表。

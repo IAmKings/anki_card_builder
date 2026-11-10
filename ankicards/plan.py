@@ -37,9 +37,23 @@ MIN_QUOTE_CHARS = 8
 MAX_QUOTE_CHARS = 300
 #: plan 允许的字段。多出来的字段不报错但会 warning，避免拼写错误被静默吞掉。
 PLAN_CARD_FIELDS = {
-    "locator", "quote", "q", "a", "text", "extra", "type",
+    "locator", "quote", "q", "a", "text", "extra", "type", "kind",
     "tags", "id", "section",
 }
+#: 卡型：不同文体里值得背的东西不是同一类，验收标准也必须分开。
+#: - claim：观点/判断（要能被原文支持）
+#: - style：写法/结构/语气（要有足够长的样本才看得出）
+#: - phrase：金句（要能整句背下来）
+#: - fact：事实/数字（要能核对）
+CARD_KINDS = {
+    "claim": "观点/判断",
+    "style": "写法/结构/语气",
+    "phrase": "金句",
+    "fact": "事实/数字",
+}
+CARD_KIND_NAMES = tuple(CARD_KINDS)
+PHRASE_MAX_CHARS = 60
+STYLE_MIN_CHARS = 30
 #: 未出卡理由 = 适配器的机械理由 + 需要读原文才能下的判断。
 PLAN_SKIP_REASONS = tuple(SKIP_REASONS) + (
     "step_not_concept",     # 这是操作步骤，不是概念/事实
@@ -156,6 +170,27 @@ def _group_coverage(entries: list[dict], groups: list[dict]) -> tuple[int, list[
 NOVEL_SKIP_REASONS = ("plot_summary", "spoiler", "character_note")
 MAX_QUOTE_CHARS_NOVEL = 800
 
+# 散文集/随笔：一段完整论述常常超过 300 字，跳过理由也和小说不同
+# （「这段只是轶事」「这段是文风示范」「这段是背景铺垫」才是真正的理由）。
+ESSAY_SKIP_REASONS = ("anecdote", "style_note", "background")
+MAX_QUOTE_CHARS_ESSAY = 800
+
+PROFILES = {
+    "manual": {"quote_max": MAX_QUOTE_CHARS, "reasons": ()},
+    "novel": {"quote_max": MAX_QUOTE_CHARS_NOVEL, "reasons": NOVEL_SKIP_REASONS},
+    "essay": {"quote_max": MAX_QUOTE_CHARS_ESSAY, "reasons": ESSAY_SKIP_REASONS},
+}
+PROFILE_NAMES = tuple(PROFILES)
+
+
+def _profile_quote_max(profile: str | None) -> int:
+    return PROFILES.get(profile or "manual", PROFILES["manual"])["quote_max"]
+
+
+def _allowed_reasons(profile: str | None) -> tuple[str, ...]:
+    return PLAN_SKIP_REASONS + PROFILES.get(
+        profile or "manual", PROFILES["manual"])["reasons"]
+
 
 def check_plan(plan: dict, ingest: IngestData,
                min_coverage: float | None = None,
@@ -163,7 +198,10 @@ def check_plan(plan: dict, ingest: IngestData,
     """校验 plan；返回 (报告, 统计)。有 error 时不应编译。"""
     report = Report()
     stats: dict = {"cards": 0, "skipped": 0, "groups": len(ingest.groups or []),
-                   "covered": 0, "coverage": None}
+                   "covered": 0, "coverage": None, "kinds": {}}
+
+    if profile is not None and profile not in PROFILES:
+        report.add_error("profile", f"必须是 {'/'.join(PROFILE_NAMES)} 之一，实际为 {profile!r}")
 
     if plan.get("version") != PLAN_VERSION:
         report.add_error("version", f"必须是 {PLAN_VERSION}，实际为 {plan.get('version')!r}")
@@ -223,7 +261,8 @@ def check_plan(plan: dict, ingest: IngestData,
         if not text.strip():
             report.add_error(f"{where}.locator", f"定位在 ingest 产物中没有文本: {locator}")
             continue
-        entries.append({"kind": "card", "locator": locator, "where": where})
+        entries.append({"kind": "card", "locator": locator, "where": where,
+                        "quote": entry.get("quote") if isinstance(entry.get("quote"), str) else ""})
 
         key = entry.get("key")
         if key is not None and (not isinstance(key, str) or not CARD_KEY_RE.fullmatch(key)):
@@ -235,7 +274,7 @@ def check_plan(plan: dict, ingest: IngestData,
             report.add_error(f"{where}.quote", "必填：每张卡都要有原文引用")
         else:
             quote_norm = normalize(quote)
-            max_quote = MAX_QUOTE_CHARS_NOVEL if profile == "novel" else MAX_QUOTE_CHARS
+            max_quote = _profile_quote_max(profile)
             if not (MIN_QUOTE_CHARS <= len(quote_norm) <= max_quote):
                 report.add_error(
                     f"{where}.quote",
@@ -263,6 +302,34 @@ def check_plan(plan: dict, ingest: IngestData,
                         f"{where}",
                         f"卡面专名 {identifier!r} 既不在 quote 也不在全文中（疑似自造）")
 
+            card_kind = entry.get("kind")
+            if card_kind is None:
+                report.add_warning(
+                    f"{where}.kind",
+                    f"建议标注卡型：{'/'.join(CARD_KIND_NAMES)}；不同卡型的验收标准不同")
+            elif card_kind not in CARD_KINDS:
+                report.add_error(
+                    f"{where}.kind",
+                    f"必须是 {'/'.join(CARD_KIND_NAMES)} 之一，实际为 {card_kind!r}")
+            elif card_kind == "phrase" and len(quote_norm) > PHRASE_MAX_CHARS:
+                report.add_warning(
+                    f"{where}.quote",
+                    f"金句卡的 quote 有 {len(quote_norm)} 字（上限 {PHRASE_MAX_CHARS}）："
+                    "太长的引用背不下来，挑能整句记住的那一句")
+            elif card_kind == "style" and len(quote_norm) < STYLE_MIN_CHARS:
+                report.add_warning(
+                    f"{where}.quote",
+                    f"文风卡的 quote 只有 {len(quote_norm)} 字（建议 ≥{STYLE_MIN_CHARS}）："
+                    "样本太短看不出写法")
+            elif card_kind == "fact" and not _numbers(quote_norm) \
+                    and not re.search(r"[〇零一二三四五六七八九十百千万亿]+(?:年|月|日|人|次|个|种|倍|万|亿)", quote_norm):
+                report.add_warning(
+                    f"{where}.quote",
+                    "事实卡的 quote 里没有数字或日期：没有可核对锚点的事实容易写错")
+            elif card_kind == "claim" and not re.search(r"[？?]\s*$", str(entry.get("q") or "")):
+                report.add_warning(
+                    f"{where}.q", "观点卡的问题建议写成问句（以 ？ 结尾）")
+
         card_type = entry.get("type", "qa")
         if card_type not in ("qa", "cloze"):
             report.add_error(f"{where}.type", f"必须是 qa/cloze，实际为 {card_type!r}")
@@ -282,6 +349,9 @@ def check_plan(plan: dict, ingest: IngestData,
                 report.add_error(f"{where}.id", f"id 重复: {card_id}")
             else:
                 card_ids.add(card_id)
+        card_kind = entry.get("kind")
+        if isinstance(card_kind, str) and card_kind:
+            stats["kinds"][card_kind] = stats["kinds"].get(card_kind, 0) + 1
 
     for index, entry in enumerate(skipped):
         where = f"skipped[{index}]"
@@ -299,24 +369,47 @@ def check_plan(plan: dict, ingest: IngestData,
             report.add_error(f"{where}.locator", f"定位不在 ingest 产物中: {locator}")
             continue
         reason = entry.get("reason")
-        allowed = PLAN_SKIP_REASONS + (NOVEL_SKIP_REASONS if profile == "novel" else ())
+        allowed = _allowed_reasons(profile)
         if reason not in allowed:
             report.add_error(
                 f"{where}.reason",
                 f"必须是 {'/'.join(allowed)} 之一，实际为 {reason!r}")
         entries.append({"kind": "skip", "locator": locator, "where": where})
 
+    def quote_span(entry: dict) -> tuple[int, int] | None:
+        """引用在定位文本中的位置（忽略空白），用于判断同段多卡是否各说各话。"""
+        quote = _without_space(entry.get("quote") or "")
+        text = _without_space(locator_text(entry["locator"], ingest) or "")
+        index = text.find(quote) if quote else -1
+        if index < 0:
+            return None
+        return index, index + len(quote)
+
     for i, left in enumerate(entries):
         for right in entries[i + 1:]:
             # 页码是粗粒度定位：同一页出多张卡是正常的，不参与互斥检查。
             if left["locator"].startswith("page:") or right["locator"].startswith("page:"):
                 continue
-            if _overlaps(left["locator"], right["locator"]):
+            if not _overlaps(left["locator"], right["locator"]):
+                continue
+            if left["kind"] == "card" and right["kind"] == "card":
+                span_a, span_b = quote_span(left), quote_span(right)
+                if span_a and span_b and (span_a[1] <= span_b[0] or span_b[1] <= span_a[0]):
+                    continue
+                report.add_error(
+                    f"{right['where']}",
+                    f"与 {left['where']}（{left['locator']}）的引用重叠："
+                    "同一段可以出多张卡，但 quote 必须是不重叠的不同句子")
+            elif left["kind"] == "skip" and right["kind"] == "skip":
                 report.add_error(
                     f"{right['where']}",
                     f"与 {left['where']}（{left['locator']}）区间相交："
-                    f"{left['locator']} 与 {right['locator']}；"
-                    "同一段原文只能有一个归属")
+                    "同一段原文只能记一次未出卡")
+            else:
+                report.add_warning(
+                    f"{right['where']}",
+                    f"与 {left['where']}（{left['locator']}）区间相交："
+                    "同一段里既出了卡又记为未出卡，确认不是重复记账")
 
     groups = ingest.groups or []
     if groups:
@@ -384,8 +477,14 @@ def build_deck(plan: dict, ingest: IngestData, with_key: bool = False) -> DeckDa
         else:
             card["q"] = entry["q"]
             card["a"] = entry["a"]
-        if entry.get("tags"):
-            card["tags"] = list(entry["tags"])
+        tags = list(entry.get("tags") or [])
+        card_kind = entry.get("kind")
+        if isinstance(card_kind, str) and card_kind:
+            kind_tag = f"kind:{card_kind}"
+            if kind_tag not in tags:
+                tags.append(kind_tag)
+        if tags:
+            card["tags"] = tags
         if entry.get("id"):
             card["id"] = entry["id"]
         if key:

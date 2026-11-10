@@ -115,8 +115,9 @@ plan（读过之后的判断，`ankicards/plan.py` 的 `PLAN_SKIP_REASONS`，在
 - **P1**：`ankicards/quality.py` 的 Q1–Q9 确定性规则（默认只报告，不阻断）；`import` 写 `import-report.json`，含 `skipped`（未出卡理由）与 `findings`（规则命中）；`import --strict` 让 error 级问题直接失败且不写牌组。
 - **P3**：`plan.json` 契约落地（`ankicards/plan.py`）。每张卡必须带逐字 `quote`，校验规则 E1–E7：quote 是定位文本的逐字子串（空白归一）、答案里的数字必须出现在 quote 里（问题里的数字只提示）、quote 长度 8–300、定位存在且非空、未出卡理由属于枚举、任意两条目区间不得相交、分组覆盖率可选下限（`--min-coverage`）；另有「卡面出现原文没有的 ASCII 专名」warning。`plan check` 只读；`plan compile` 校验通过才写牌组并复用 `write_deck`（含 `import-report.json`）；`plan diff` 对比 plan 与现有牌组会新增/删除/改动哪些卡（按归一后的卡面文本比对）。`quote` 不进卡片字段，只留在 plan 里作为审计记录。
 - **P4**：可选卡身份 `key`（12 位小写十六进制，`plan compile --with-key` 生成，只用于新牌组）。有 key 的卡按 `(key)` 定 guid：改措辞不会在 Anki 里变成新卡；同一页/同一段内新增卡会改变后续 `seq`，从而改变 key（这是显式代价）。
-- **P6**：EPUB ingest（`chapter:C/p:M`，章节顺序取自 OPF spine，每个 `<p>` 独立成组）+ `plan --profile novel`（quote 上限 800 字、未出卡理由追加 `plot_summary`/`spoiler`/`character_note`）。小说仍按“逐段引用 + 人抽样”验收，不做情节归纳。
+- **P6**：EPUB ingest（`chapter:C/p:M`，章节顺序取自 OPF spine，每个 `<p>` 独立成组）+ `plan --profile novel`（quote 上限 800 字、未出卡理由追加 `plot_summary`/`spoiler`/`character_note`）与 `--profile essay`（散文/随笔：quote 上限 800 字、理由追加 `anecdote`/`style_note`/`background`）。两者都仍按“逐段引用 + 人抽样”验收，不做情节或主旨归纳。
 - **P2**：`ingest` 产出 `groups`（编号点 + 缩进子项 + 没说完的续行归成一组），并把组区间（如 `line:3-7`）注册为合法定位；`import --ingest <清单>` 让 `txt-points`/`docx-points`/`web-points` 按组取点，答案并入组内其余文本，`source` 写区间；`schema.parse_locator` 校验区间次序（起点不得大于终点），闸门要求整个区间出现在 ingest 产物里。不加 `--ingest` 时行为与 P1 完全一致。
+- MOBI/AZW 没有 ingest 路径（`BOOKMOBI`/PalmDOC 未实现）；需要时先用 Calibre `ebook-convert` 转成 EPUB，转换步骤不进本仓库。
 - 注意 Q4 只认 `第一步/步骤/注意/说明/示例/小结/总结/提示` 这类显式词；“环境准备”这种步骤标题抓不到，靠 `skipped` 里的 `continuation` 计数和人的复核。走 `--ingest` 分组路径后，续行/子项被并进答案，`continuation` 不再产生；散文段则记为 `not_point`。
 
 仍未实现：
@@ -141,3 +142,37 @@ plan（读过之后的判断，`ankicards/plan.py` 的 `PLAN_SKIP_REASONS`，在
 - **同一段只能出一张卡**（E5 区间不得相交）：一段话同时能问「是什么」和「什么时候用」时，只能合并成一问或换定位。
 - **数字校验只比 digits**：`800ms` 写成 `0.8 秒` 会被拦（0.8 不在 quote），但写成「八百毫秒」或漏掉单位不会被拦；中文数字不在校验范围内。
 - 空白归一工作正常：手打箱线图行、与原文空格数不同，仍通过 E1。
+
+## 10. 卡型与密度：一次实测量（2026-11-10）
+
+密度不能靠感觉定。用同一本散文集的前三个内容章（chapter 6 / 7 / 9，共 20,474 字）按
+「每篇 3–5 张」写了 14 张卡，再反推全书。
+
+| 项目 | 数值 |
+|---|---|
+| 三章字数 | 20,474 |
+| 卡片数 | 14（claim 10、phrase 4） |
+| 实测密度 | 1,462 字/卡 |
+| 全书 74,300 字外推 | 约 51 张 |
+| 按每篇 3 张（13 篇） | 39 张 |
+| 按每篇 5 张 | 65 张 |
+| 按每篇 8 张 | 104 张 |
+
+对照组（知识型文档，公开测试牌组）：
+
+| 牌组 | 源文档 | 卡片 | 密度 |
+|---|---|---|---|
+| Android | 456,494 字 | 1,270 | 359 字/卡 |
+| MQTT | 8,565 字 | 200 | 43 字/卡 |
+
+结论：
+
+1. **同一套工具，两种密度**。知识型文档一条信息点一张卡（MQTT 43 字/卡）；散文随笔
+   1,400 字/卡上下，差 4–34 倍。密度是文体属性，不该用统一阈值卡。
+2. **散文类按篇配额，不按字数配额**。每篇 3–5 张 → 全书 40–70 张；早期估算的
+   「120–200 张」偏高，已被实测推翻。
+3. **卡型配额要分开给**。这次 14 张里 `claim` 10 张、`phrase` 4 张，`style` 和 `fact`
+   一张都没有——写卡时观点会吃掉全部名额。若确实要文风卡，必须单独规定「每篇至少
+   1 张 style」，否则它永远不会出现。
+4. **同段多卡是必要的**。这本书常见「前半观点、后半金句」的段落；放开 quote 不重叠的
+   同段多卡后，一段可以各取一句，密度才不被规则人为压低。

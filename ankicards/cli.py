@@ -216,6 +216,9 @@ def _print_plan_report(report, stats: dict) -> None:
     for warning in report.warnings:
         print(f"△ {warning}")
     line = f"卡片 {stats['cards']} / 未出卡 {stats['skipped']}"
+    kinds = stats.get("kinds") or {}
+    if kinds:
+        line += " / 卡型 " + " ".join(f"{name} {count}" for name, count in sorted(kinds.items()))
     if stats.get("coverage") is not None:
         line += (f" / 覆盖率 {stats['covered']}/{stats['groups']}"
                  f"（{stats['coverage']:.0%}）")
@@ -443,7 +446,7 @@ def main(argv: list[str] | None = None) -> int:
     p_plan_check = plan_sub.add_parser("check", help="校验引用锚定、理由枚举与覆盖率")
     p_plan_check.add_argument("plan", help="plan.json 路径")
     p_plan_check.add_argument("--ingest", required=True, help="ingest 产物 JSON")
-    p_plan_check.add_argument("--profile", choices=["manual", "novel"], default=None,
+    p_plan_check.add_argument("--profile", choices=["manual", "novel", "essay"], default=None,
                               help="内容形态；novel 放宽引用长度与未出卡理由")
     p_plan_check.add_argument("--min-coverage", type=float, default=None,
                               help="分组覆盖率阈值（0–1），低于即失败")
@@ -453,7 +456,7 @@ def main(argv: list[str] | None = None) -> int:
     p_plan_compile.add_argument("plan", help="plan.json 路径")
     p_plan_compile.add_argument("--out", required=True, help="输出牌组目录")
     p_plan_compile.add_argument("--ingest", required=True, help="ingest 产物 JSON")
-    p_plan_compile.add_argument("--profile", choices=["manual", "novel"], default=None,
+    p_plan_compile.add_argument("--profile", choices=["manual", "novel", "essay"], default=None,
                                 help="内容形态；novel 放宽引用长度与未出卡理由")
     p_plan_compile.add_argument("--min-coverage", type=float, default=None,
                                 help="分组覆盖率阈值（0–1），低于即失败")

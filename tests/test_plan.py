@@ -44,7 +44,7 @@ def write_manifest(path: Path) -> Path:
 
 
 def card_g2(**overrides) -> dict:
-    card = {"locator": "line:2-3", "quote": QUOTE_G2,
+    card = {"locator": "line:2-3", "quote": QUOTE_G2, "kind": "claim",
             "q": "重试时为什么必须带同一请求号？",
             "a": "为了让重复请求被幂等处理，结果保持一致。"}
     card.update(overrides)
@@ -52,7 +52,7 @@ def card_g2(**overrides) -> dict:
 
 
 def card_g3(**overrides) -> dict:
-    card = {"locator": "line:4", "quote": QUOTE_G3,
+    card = {"locator": "line:4", "quote": QUOTE_G3, "kind": "claim",
             "q": "默认监听哪个端口？", "a": "8080。"}
     card.update(overrides)
     return card
@@ -110,6 +110,46 @@ class PlanRulesTest(unittest.TestCase):
         report, _ = check_plan(plan, load_ingest(path))
         self.assertEqual(report.errors, [])
 
+    def long_manifest(self, text: str, tail: str = "後記"):
+        path = Path(self.tmp.name) / "long.json"
+        units = [{"id": "line:1", "line": 1, "chars": len(text), "text": text},
+                 {"id": "line:2", "line": 2, "chars": len(tail), "text": tail}]
+        manifest = {"format": "txt", "source": "l.txt", "source_sha256": None,
+                    "unit_kind": "line", "unit_count": 2,
+                    "total_chars": len(text) + len(tail), "units": units,
+                    "groups": [
+                        {"id": "g1", "kind": "prose", "unit_locators": ["line:1"],
+                         "span": ["line:1", "line:1"], "locator": "line:1", "chars": len(text)},
+                        {"id": "g2", "kind": "prose", "unit_locators": ["line:2"],
+                         "span": ["line:2", "line:2"], "locator": "line:2", "chars": len(tail)}],
+                    "warnings": [], "empty_lines": [], "encoding": "utf-8"}
+        path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+        return load_ingest(path)
+
+    def test_essay_profile_allows_long_quote(self) -> None:
+        text = "這是一段完整的散文論述，用來測試長引用。" * 20
+        ingest = self.long_manifest(text)
+        plan = make_plan([{"locator": "line:1", "quote": text,
+                           "q": "作者怎麼說？", "a": "見引用。"}])
+        report, _ = check_plan(plan, ingest, profile="essay")
+        self.assertEqual(report.errors, [])
+        report, _ = check_plan(plan, ingest)
+        self.assertTrue(any("长度必须在 8–300" in error for error in report.errors))
+
+    def test_essay_profile_adds_essay_skip_reasons(self) -> None:
+        ingest = self.long_manifest("這是一段完整的散文論述，用來測試長引用。")
+        plan = make_plan(skipped=[{"locator": "line:2", "reason": "anecdote"}])
+        report, _ = check_plan(plan, ingest, profile="essay")
+        self.assertEqual(report.errors, [])
+        report, _ = check_plan(plan, ingest)
+        self.assertTrue(any("必须是" in error for error in report.errors))
+        report, _ = check_plan(plan, ingest, profile="novel")
+        self.assertTrue(any("必须是" in error for error in report.errors))
+
+    def test_unknown_profile_is_error(self) -> None:
+        report, _ = self.check(make_plan([card_g2()]), profile="poem")
+        self.assertTrue(any("profile" in error for error in report.errors))
+
     def test_numbers_must_come_from_quote(self) -> None:
         report, _ = self.check(make_plan([card_g3(a="9090 端口。")]))
         self.assertTrue(any("答案数字 9090" in error for error in report.errors))
@@ -150,8 +190,63 @@ class PlanRulesTest(unittest.TestCase):
         self.assertEqual(report.errors, [])
 
     def test_entries_must_not_overlap(self) -> None:
-        report, _ = self.check(make_plan([card_g2(), card_g2(locator="line:2")]))
-        self.assertTrue(any("区间相交" in error for error in report.errors))
+        report, _ = self.check(make_plan([card_g2(), card_g2()]))
+        self.assertTrue(any("引用重叠" in error for error in report.errors))
+
+    def test_same_group_allows_disjoint_quotes(self) -> None:
+        first = card_g2(quote="1. **幂等**：同一请求重复执行结果一致。",
+                        q="什么叫幂等？", a="同一请求重复执行结果一致。")
+        second = card_g2(quote="重试时必须带同一请求号。",
+                         q="重试时要带什么？", a="同一请求号。")
+        report, stats = self.check(make_plan([first, second]))
+        self.assertEqual(report.errors, [])
+        self.assertEqual(stats["cards"], 2)
+
+    def test_kind_missing_is_warning(self) -> None:
+        card = card_g2()
+        card.pop("kind")
+        report, _ = self.check(make_plan([card]))
+        self.assertEqual(report.errors, [])
+        self.assertTrue(any("建议标注卡型" in warning for warning in report.warnings))
+
+    def test_kind_must_be_known(self) -> None:
+        report, _ = self.check(make_plan([card_g2(kind="story")]))
+        self.assertTrue(any("必须是 claim/style/phrase/fact" in e for e in report.errors))
+
+    def test_phrase_quote_must_stay_short(self) -> None:
+        long_line = "1. **金句**：" + "把日子过成一句话" * 8
+        units = [{"id": "line:1", "line": 1, "chars": len(long_line),
+                  "text": long_line}]
+        groups = [{"id": "g1", "kind": "point", "unit_locators": ["line:1"],
+                   "span": ["line:1", "line:1"], "locator": "line:1",
+                   "chars": len(long_line)}]
+        manifest = {"format": "txt", "source": "long.txt", "source_sha256": None,
+                    "unit_kind": "line", "unit_count": 1,
+                    "total_chars": len(long_line), "units": units,
+                    "groups": groups, "warnings": []}
+        path = self.dir / "long.json"
+        path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+        ingest = load_ingest(path)
+        card = {"locator": "line:1", "quote": long_line, "kind": "phrase",
+                "q": "这句话怎么背？", "a": "整句记住。"}
+        report = check_plan(make_plan([card]), ingest)[0]
+        self.assertTrue(any("金句卡的 quote" in warning for warning in report.warnings))
+
+    def test_style_quote_must_be_long_enough(self) -> None:
+        card = card_g2(quote="同一请求重复执行", kind="style",
+                       q="这句话的写法有什么特点？", a="用短句下定义。")
+        report, _ = self.check(make_plan([card]))
+        self.assertTrue(any("文风卡的 quote" in warning for warning in report.warnings))
+
+    def test_fact_quote_needs_a_number(self) -> None:
+        card = card_g2(quote="重试时必须带同一请求号。", kind="fact",
+                       q="重试时对请求号有什么要求？", a="必须带同一请求号。")
+        report, _ = self.check(make_plan([card]))
+        self.assertTrue(any("事实卡的 quote 里没有数字" in w for w in report.warnings))
+
+    def test_claim_question_should_be_a_question(self) -> None:
+        report, _ = self.check(make_plan([card_g2(q="重试时带同一请求号", a="原因如上。")]))
+        self.assertTrue(any("观点卡的问题建议写成问句" in w for w in report.warnings))
 
     def test_coverage_threshold(self) -> None:
         report, stats = self.check(make_plan([card_g2()]), min_coverage=1.0)
@@ -186,6 +281,13 @@ class PlanCompileTest(unittest.TestCase):
         self.manifest = write_manifest(self.dir / "demo.json")
         self.ingest = load_ingest(self.manifest)
         self.out = self.dir / "deck"
+
+    def test_compile_records_kind_as_tag(self) -> None:
+        out = self.dir / "deck"
+        report, _, path = compile_plan(make_plan([card_g2()]), self.ingest, out)
+        self.assertFalse(report.errors)
+        cards = json.loads((path / "cards" / "01.json").read_text(encoding="utf-8"))
+        self.assertIn("kind:claim", cards["cards"][0]["tags"])
 
     def test_compile_writes_cards_and_ledger(self) -> None:
         plan = make_plan([card_g2(), card_g3()],
