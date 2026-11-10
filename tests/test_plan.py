@@ -112,7 +112,18 @@ class PlanRulesTest(unittest.TestCase):
 
     def test_numbers_must_come_from_quote(self) -> None:
         report, _ = self.check(make_plan([card_g3(a="9090 端口。")]))
-        self.assertTrue(any("卡面数字 9090" in error for error in report.errors))
+        self.assertTrue(any("答案数字 9090" in error for error in report.errors))
+
+    def test_question_label_numbers_are_not_card_facts(self) -> None:
+        """真实讲义里问题常带编号（「案例 2」「第 4 节」），不是要背的数字。"""
+        report, _ = self.check(make_plan([card_g3(q="案例 2：默认监听哪个端口？", a="8080。")]))
+        self.assertEqual(report.errors, [])
+        self.assertEqual(report.warnings, [])
+
+    def test_number_in_question_is_only_a_warning(self) -> None:
+        report, _ = self.check(make_plan([card_g3(q="超时是多少，30 秒吗？", a="8080。")]))
+        self.assertEqual(report.errors, [])
+        self.assertTrue(any("问题里的数字 30" in warning for warning in report.warnings))
 
     def test_bad_key_format_is_error(self) -> None:
         report, _ = self.check(make_plan([card_g2(key="ABC")]))

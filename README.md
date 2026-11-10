@@ -158,7 +158,7 @@ DOCX 摄取限制：压缩包 ≤20 MB、解压后 ≤200 MB、块数 ≤5000（
 ```
 
 `plan.json` 是抽取环节的唯一接缝：机械适配器、人、离线 LLM 都只写它，
-由 `plan check` 做确定性校验（quote 必须是定位文本的逐字子串、卡面数字必须能在
+由 `plan check` 做确定性校验（quote 必须是定位文本的逐字子串、答案里的数字必须能在
 quote 中找到、理由属于枚举、条目区间不相交、可选覆盖率下限），再由
 `plan compile` 编译成 `cards/*.json`。它不在 `load_spec` 的读取范围内，
 所以放进牌组目录不会影响 `check`/`build`。`quote` 不写进卡片（Anki 字段固定），

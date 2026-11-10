@@ -8,7 +8,8 @@ docs/extraction-policy.md：版面结构不等于知识单元结构，抽取该�
 规则（E 系列，全部确定性，不做语义裁决）：
 
 - E1 quote 必须是定位文本的逐字子串（忽略全部空白差异）
-- E2 卡面（q/a，cloze 用 text/extra）里的每个数字都必须出现在 quote 里
+- E2 答案（cloze 用 text/extra）里的每个数字都必须出现在 quote 里；问题里的数字
+  多为编号（案例 2、第 4 节），只给 warning 不拦
 - E3 quote 长度 8–300 字：太短不像证据，太长等于把整段抄进卡
 - E4 定位必须存在于 ingest 产物中，且该定位有文本
 - E5 未出卡理由必须属于枚举；任意两个条目（卡 + 未出卡）的区间不得相交
@@ -79,10 +80,31 @@ def load_plan(path: str | Path) -> dict:
 
 
 def _card_text(entry: dict) -> str:
-    """卡面用于查数字/专名的文本（qa 与 cloze 都覆盖）。"""
+    """卡面用于查专名的文本（qa 与 cloze 都覆盖）。"""
     if entry.get("type") == "cloze":
         return f"{entry.get('text', '')} {entry.get('extra', '')}"
     return f"{entry.get('q', '')} {entry.get('a', '')}"
+
+
+def _answer_text(entry: dict) -> str:
+    """卡面用于查数字的文本：只查答案。
+
+    问题里的数字常常是编号（「案例 2」「第 4 节」），不是要背的事实；
+    把它们当卡面数字会误报，真实讲义上十有八九都有这种引用。
+    """
+    if entry.get("type") == "cloze":
+        return f"{entry.get('text', '')} {entry.get('extra', '')}"
+    return str(entry.get("a") or "")
+
+
+_LABEL_NUMBER_RE = re.compile(r"(?:案例|第|图|表|章|节|页|步|项)\s*\d+")
+
+
+def _question_stem(entry: dict) -> str:
+    """问题去掉编号类引用后的文本，用于给问题里的数字做软提示。"""
+    if entry.get("type") == "cloze":
+        return ""
+    return _LABEL_NUMBER_RE.sub("", str(entry.get("q") or ""))
 
 
 def parse_plan_locator(locator: str) -> tuple[str, int, int] | None:
@@ -225,11 +247,16 @@ def check_plan(plan: dict, ingest: IngestData,
                     f"不是 {locator} 文本的逐字子串（空白差异已忽略）；"
                     "引用必须从原文复制，不能改写")
             quote_numbers = _numbers(quote_norm)
-            for number in _numbers(_card_text(entry)):
+            for number in _numbers(_answer_text(entry)):
                 if number not in quote_numbers:
                     report.add_error(
                         f"{where}",
-                        f"卡面数字 {number} 在 quote 里找不到：数字必须来自原文引用")
+                        f"答案数字 {number} 在 quote 里找不到：数字必须来自原文引用")
+            for number in _numbers(_question_stem(entry)):
+                if number not in quote_numbers:
+                    report.add_warning(
+                        f"{where}.q",
+                        f"问题里的数字 {number} 不在 quote 中；如果是编号可以忽略")
             for identifier in _IDENTIFIER_RE.findall(_card_text(entry)):
                 if identifier not in quote_norm and identifier not in full_text:
                     report.add_warning(

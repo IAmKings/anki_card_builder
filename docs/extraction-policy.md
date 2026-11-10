@@ -105,7 +105,7 @@ plan（读过之后的判断，`ankicards/plan.py` 的 `PLAN_SKIP_REASONS`，在
 | 表头变成答案 | 表头词表命中 | 记 `table_header` |
 | 同一知识点两张卡 | 跨章节重复 | 合并，记 `merged_into` |
 | 引用被润色过 | 归纳时顺手改写 | `plan check` E1 拦：quote 必须是逐字子串 |
-| 卡面数字原文没有 | 模型补数或换算 | `plan check` E2 拦：数字必须出现在 quote 里 |
+| 卡面数字原文没有 | 模型补数或换算 | `plan check` E2 拦：答案里的数字必须出现在 quote 里；问题里的编号（「案例 2」「第 4 节」）不算 |
 | 一整段被跳过却说不清原因 | 没真读，或读了没记账 | `plan check --min-coverage` + 未覆盖分组清单 |
 
 ## 8. 状态与后续
@@ -113,7 +113,7 @@ plan（读过之后的判断，`ankicards/plan.py` 的 `PLAN_SKIP_REASONS`，在
 已落地：
 
 - **P1**：`ankicards/quality.py` 的 Q1–Q9 确定性规则（默认只报告，不阻断）；`import` 写 `import-report.json`，含 `skipped`（未出卡理由）与 `findings`（规则命中）；`import --strict` 让 error 级问题直接失败且不写牌组。
-- **P3**：`plan.json` 契约落地（`ankicards/plan.py`）。每张卡必须带逐字 `quote`，校验规则 E1–E7：quote 是定位文本的逐字子串（空白归一）、卡面数字必须出现在 quote 里、quote 长度 8–300、定位存在且非空、未出卡理由属于枚举、任意两条目区间不得相交、分组覆盖率可选下限（`--min-coverage`）；另有「卡面出现原文没有的 ASCII 专名」warning。`plan check` 只读；`plan compile` 校验通过才写牌组并复用 `write_deck`（含 `import-report.json`）；`plan diff` 对比 plan 与现有牌组会新增/删除/改动哪些卡（按归一后的卡面文本比对）。`quote` 不进卡片字段，只留在 plan 里作为审计记录。
+- **P3**：`plan.json` 契约落地（`ankicards/plan.py`）。每张卡必须带逐字 `quote`，校验规则 E1–E7：quote 是定位文本的逐字子串（空白归一）、答案里的数字必须出现在 quote 里（问题里的数字只提示）、quote 长度 8–300、定位存在且非空、未出卡理由属于枚举、任意两条目区间不得相交、分组覆盖率可选下限（`--min-coverage`）；另有「卡面出现原文没有的 ASCII 专名」warning。`plan check` 只读；`plan compile` 校验通过才写牌组并复用 `write_deck`（含 `import-report.json`）；`plan diff` 对比 plan 与现有牌组会新增/删除/改动哪些卡（按归一后的卡面文本比对）。`quote` 不进卡片字段，只留在 plan 里作为审计记录。
 - **P4**：可选卡身份 `key`（12 位小写十六进制，`plan compile --with-key` 生成，只用于新牌组）。有 key 的卡按 `(key)` 定 guid：改措辞不会在 Anki 里变成新卡；同一页/同一段内新增卡会改变后续 `seq`，从而改变 key（这是显式代价）。
 - **P6**：EPUB ingest（`chapter:C/p:M`，章节顺序取自 OPF spine，每个 `<p>` 独立成组）+ `plan --profile novel`（quote 上限 800 字、未出卡理由追加 `plot_summary`/`spoiler`/`character_note`）。小说仍按“逐段引用 + 人抽样”验收，不做情节归纳。
 - **P2**：`ingest` 产出 `groups`（编号点 + 缩进子项 + 没说完的续行归成一组），并把组区间（如 `line:3-7`）注册为合法定位；`import --ingest <清单>` 让 `txt-points`/`docx-points`/`web-points` 按组取点，答案并入组内其余文本，`source` 写区间；`schema.parse_locator` 校验区间次序（起点不得大于终点），闸门要求整个区间出现在 ingest 产物里。不加 `--ingest` 时行为与 P1 完全一致。
@@ -124,3 +124,20 @@ plan（读过之后的判断，`ankicards/plan.py` 的 `PLAN_SKIP_REASONS`，在
 - P5 离线 LLM 抽取器（按用户决定搁置：当前最大问题不是“谁来抽”，而是抽取契约本身）。
 - P3 只解决「转述有没有原文依据」；它不判断「这个知识点值不值得背」——那仍是人的抽样与判断（§6）。
 - 本文件随各阶段更新；新增 `reason` 或 `plan` 字段时同步改这里，不要只改代码。
+
+## 9. 真实讲义验收记录（2026-11-10）
+
+样本：仓库内一份 1572 行的性能优化讲义（Markdown，转成 txt 后 ingest；1572 个行单元、575 个分组）。人工/agent 按组原文写了 7 张卡 + 6 条未出卡记录，走 `plan check` → `plan compile` → `check --txt --ingest`。
+
+误报（规则过严，已修）：
+
+- **E2 把问题里的编号当卡面数字**：问题写「案例 2：…」「案例 13（…）」时，`2`/`13` 不在 quote 里，整份 plan 报两条 error，而卡面没有任何编造事实。已改为：数字只查答案（cloze 查 text/extra），问题里的数字降为 warning，并豁免「案例/第/图/表/章/节/页/步/项 + 数字」这类编号写法。
+
+卡住的地方（规则没错，但真实文本上代价高，待决策）：
+
+- **quote 必须带源文本的 Markdown 标记**：`**加粗**`、`> 引用`、代码围栏都在行文本里，从渲染视图复制必然 E1 报错。工作流上必须从 ingest 文本取引用；是否给 Markdown 输入做「去行内标记的文本层」尚未决定。
+- **区间定位只能引用单元或 ingest 已合并的组**：`line:1447-1454` 这种跨行区间会报「定位不在 ingest 产物中」。排版图/代码围栏的每一行各自成组，想整段引用做一张卡做不到，只能逐行出卡或改分组规则。
+- **覆盖率在案例型讲义上不可用**：575 组只覆盖 13 组（2%）；`--min-coverage 0.5` 直接失败。这类文档「看过」不等于「每组都该出卡」，覆盖率更适合规整文档，或按章节/主题统计。
+- **同一段只能出一张卡**（E5 区间不得相交）：一段话同时能问「是什么」和「什么时候用」时，只能合并成一问或换定位。
+- **数字校验只比 digits**：`800ms` 写成 `0.8 秒` 会被拦（0.8 不在 quote），但写成「八百毫秒」或漏掉单位不会被拦；中文数字不在校验范围内。
+- 空白归一工作正常：手打箱线图行、与原文空格数不同，仍通过 E1。
