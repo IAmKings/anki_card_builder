@@ -191,6 +191,10 @@ DOCX 摄取限制：压缩包 ≤20 MB、解压后 ≤200 MB、块数 ≤5000（
 定位；`quote` 重叠或完全相同才报错。同一段既出卡又记为未出卡只给 warning（确认不是
 重复记账）。未出卡条目之间仍然互斥。
 
+**PDF 跨页**：一段话被页码切断时，定位写 `page:N-M`（如 `page:190-191`），`quote` 可以
+横跨两页；ingest 清单里的 `page_spans` 列出检测到的续页对（上一页未以句末标点收尾）。
+`plan compile` 会把区间写成 `pages: [N, M]`，卡片背面同时显示这两页的截图。
+
 字段定义以 `ankicards/schema.py` 为唯一真值；`skills/anki-card-builder/SKILL.md`
 记录的是流程与判断（怎么选路径、怎么裁图、怎么校对），不复制字段表。
 安装与依赖说明见 [`skills/README.md`](skills/README.md)。

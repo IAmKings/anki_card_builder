@@ -65,7 +65,7 @@ PLAN_SKIP_REASONS = tuple(SKIP_REASONS) + (
 )
 _NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 #: PDF 源没有 para/line/block 定位，plan 用 page:N 指向整页文本。
-PAGE_LOCATOR_RE = re.compile(r"^page:[1-9]\d*$")
+PAGE_LOCATOR_RE = re.compile(r"^page:([1-9]\d*)(?:-([1-9]\d*))?$")
 _IDENTIFIER_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.:/@-]{1,}")
 
 
@@ -121,18 +121,40 @@ def _question_stem(entry: dict) -> str:
     return _LABEL_NUMBER_RE.sub("", str(entry.get("q") or ""))
 
 
+def _range_reversed(locator: str) -> bool:
+    parsed = parse_plan_locator(locator)
+    return parsed is not None and parsed[0] == "page" and parsed[1] > parsed[2]
+
+
+def _reversed_message(locator: str) -> str:
+    parsed = parse_plan_locator(locator) or ("", 0, 0)
+    return f"定位区间倒置: {locator}（起点 {parsed[1]} 大于终点 {parsed[2]}）"
+
+
 def parse_plan_locator(locator: str) -> tuple[str, int, int] | None:
     """plan 的定位：page:N，或 ingest 的 para/line/block/table 定位。"""
-    if PAGE_LOCATOR_RE.fullmatch(locator):
-        number = int(locator.split(":", 1)[1])
-        return ("page", number, number)
+    match = PAGE_LOCATOR_RE.fullmatch(locator)
+    if match:
+        start = int(match.group(1))
+        end = int(match.group(2) or start)
+        return ("page", start, end)
     return parse_locator(locator)
 
 
 def locator_text(locator: str, ingest: IngestData) -> str | None:
     """定位对应的原文；不存在返回 None。"""
-    if PAGE_LOCATOR_RE.fullmatch(locator):
-        return ingest.pages.get(int(locator.split(":", 1)[1]))
+    parsed = parse_plan_locator(locator)
+    if parsed is not None and parsed[0] == "page":
+        start, end = parsed[1], parsed[2]
+        if start == end:
+            return ingest.pages.get(start)
+        texts = []
+        for number in range(start, end + 1):
+            text = ingest.pages.get(number)
+            if text is None:
+                return None
+            texts.append(text)
+        return "\n\n".join(texts)
     return ingest.locators.get(locator)
 
 
@@ -144,7 +166,7 @@ def _overlaps(a: str, b: str) -> bool:
     if pa is None or pb is None or pa[0] != pb[0]:
         return False
     if pa[0] == "page":
-        return pa[1] == pb[1]
+        return not (pa[2] < pb[1] or pb[2] < pa[1])
     if pa[0] == "table":
         return pa[1] == pb[1] and not (pa[2] < pb[2] or pb[2] < pa[2])
     return not (pa[2] < pb[1] or pb[2] < pa[1])
@@ -253,6 +275,9 @@ def check_plan(plan: dict, ingest: IngestData,
             continue
         if parse_plan_locator(locator) is None:
             report.add_error(f"{where}.locator", f"不是合法定位: {locator!r}")
+            continue
+        if _range_reversed(locator):
+            report.add_error(f"{where}.locator", _reversed_message(locator))
             continue
         text = locator_text(locator, ingest)
         if text is None:
@@ -365,6 +390,9 @@ def check_plan(plan: dict, ingest: IngestData,
         if parse_plan_locator(locator) is None:
             report.add_error(f"{where}.locator", f"不是合法定位: {locator!r}")
             continue
+        if _range_reversed(locator):
+            report.add_error(f"{where}.locator", _reversed_message(locator))
+            continue
         if locator_text(locator, ingest) is None:
             report.add_error(f"{where}.locator", f"定位不在 ingest 产物中: {locator}")
             continue
@@ -424,8 +452,12 @@ def check_plan(plan: dict, ingest: IngestData,
                 f"低于阈值 {min_coverage:.0%}；未覆盖：{sample}")
     elif ingest.pages:
         total = len(ingest.pages)
-        covered_pages = {int(entry["locator"].split(":", 1)[1]) for entry in entries
-                         if entry["locator"].startswith("page:")}
+        covered_pages: set[int] = set()
+        for entry in entries:
+            parsed = parse_plan_locator(entry["locator"])
+            if parsed is not None and parsed[0] == "page":
+                covered_pages.update(range(parsed[1], parsed[2] + 1))
+        covered_pages &= set(ingest.pages)
         stats["groups"], stats["covered"] = total, len(covered_pages)
         stats["coverage"] = len(covered_pages) / total if total else None
         if min_coverage is not None and stats["coverage"] is not None \
@@ -465,8 +497,10 @@ def build_deck(plan: dict, ingest: IngestData, with_key: bool = False) -> DeckDa
             seq = seq_by_locator.get(locator, 0)
             seq_by_locator[locator] = seq + 1
             key = derive_key(name, deck.source_kind, locator, seq)
-        if entry["locator"].startswith("page:"):
-            card = {"pages": [int(entry["locator"].split(":", 1)[1])],
+        parsed = parse_plan_locator(entry["locator"])
+        if parsed is not None and parsed[0] == "page":
+            start, end = parsed[1], parsed[2]
+            card = {"pages": [start] if start == end else [start, end],
                     "type": entry.get("type", "qa")}
         else:
             card = {"source": entry["locator"], "type": entry.get("type", "qa")}

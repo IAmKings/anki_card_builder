@@ -26,6 +26,7 @@ from .grouping import (
     classify_docx_block, classify_epub_block, classify_txt_line,
     classify_web_block, group_units, missing_units,
 )
+from .quality import SENTENCE_END
 from .txt import iter_txt_lines
 from .schema import load_json
 from .web import (
@@ -137,6 +138,30 @@ def _check_out_path(out: Path, repo_root: Path | None = None) -> None:
         raise IngestError(f"拒绝写入 {out}：ingest 产物请留在 .work/，不要放进 output/ 或 cards/")
 
 
+def _page_spans(pages: dict[int, str]) -> list[dict]:
+    """找出跨页续写的相邻页对：上一页不以句末标点收尾，下一页紧接下文。
+
+    PDF 的定位单位是页，一段话常被页码切断；这里只记录「可能的续页」，
+    真正的取舍仍由人在 plan 里决定（quote 需要覆盖哪两页就写 page:N-N+1）。
+    """
+    spans: list[dict] = []
+    numbers = sorted(pages)
+    for left_no, right_no in zip(numbers, numbers[1:]):
+        left = (pages[left_no] or "").rstrip()
+        right = (pages[right_no] or "").lstrip()
+        if not left or not right:
+            continue
+        if left[-1] in SENTENCE_END:
+            continue
+        spans.append({
+            "id": f"span:{left_no}",
+            "locator": f"page:{left_no}-{right_no}",
+            "pages": [left_no, right_no],
+            "chars": len(left) + len(right),
+        })
+    return spans
+
+
 def ingest_pdf(pdf_path: str | Path, out: str | Path | None = None,
                max_pages: int = DEFAULT_MAX_PAGES,
                allow_repaired: bool = False,
@@ -194,6 +219,8 @@ def ingest_pdf(pdf_path: str | Path, out: str | Path | None = None,
     finally:
         doc.close()
 
+    pages_text = {unit["page"]: unit["text"] for unit in units}
+    page_spans = _page_spans(pages_text)
     total_chars = sum(unit["chars"] for unit in units)
     empty_ratio = len(empty_pages) / len(units)
     warnings: list[str] = []
@@ -223,6 +250,7 @@ def ingest_pdf(pdf_path: str | Path, out: str | Path | None = None,
         "repaired": repaired,
         "warnings": warnings,
         "engine": f"pymupdf {pymupdf.__version__}",
+        "page_spans": page_spans,
         "units": units,
     }
 

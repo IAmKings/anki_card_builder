@@ -108,7 +108,7 @@ PDF/DOCX/TXT/Web/MD 只是入口不同，最后都汇入同一个 `DeckSpec` 和
 
 ### 2. 产出可寻址文本或结构化卡片
 
-- PDF：`python3 -m ankicards ingest <手册.pdf>`；默认写 `.work/ingest/<名字>-<sha8>.json`。
+- PDF：`python3 -m ankicards ingest <手册.pdf>`；默认写 `.work/ingest/<名字>-<sha8>.json`。清单里的 `page_spans` 列出「上一页没以句末标点收尾」的相邻页对，即疑似跨页续写的位置。
 - DOCX：`python3 -m ankicards ingest <笔记.docx>`；得到 `para:N` / `table:T/rR`。
 - TXT：`python3 -m ankicards ingest <笔记.txt>`；默认 UTF-8，旧文件用 `--encoding gb18030`；得到 `line:N`。
 - Web（本地）：`python3 -m ankicards ingest <page.html>`；得到 `block:N`。
@@ -129,7 +129,7 @@ PDF/DOCX/TXT/Web/MD 只是入口不同，最后都汇入同一个 `DeckSpec` 和
   ```
   有 error 时 `compile` 拒绝写盘。`quote` 只留在 plan 里，不写进卡片（Anki 字段固定）。
 - 手写：卡片写进 `<deck>/cards/*.json`，一卡一问。
-- PDF 用 `pages`；非 PDF 用 `source`；`source_kind=docx` 时 `source` 必须是 `para:N` / `para:N-M` / `table:T/rR`，`source_kind=txt` 时必须是 `line:N` 或 `line:N-M`，`source_kind=web` 时必须是 `block:N` 或 `block:N-M`，并与 ingest 对齐（区间必须整体出现在 ingest 里，起点不能大于终点）。
+- PDF 用 `pages`；跨页段落写 `page:N-M`（`plan compile` 会写成 `pages:[N, M]`，背面同时显示两页）；非 PDF 用 `source`；`source_kind=docx` 时 `source` 必须是 `para:N` / `para:N-M` / `table:T/rR`，`source_kind=txt` 时必须是 `line:N` 或 `line:N-M`，`source_kind=web` 时必须是 `block:N` 或 `block:N-M`，并与 ingest 对齐（区间必须整体出现在 ingest 里，起点不能大于终点）。
 - 图片题先在 `crops.json` 写 `page` + `rect`。
 
 **完成标准**：走 plan 时 `plan check` 无 error、覆盖率与未出卡理由都说得通；直写卡片时没有未知字段、qa/image 的 q/a 齐全；每条溯源都能被 `check --ingest` 接受；`import-report.json` 里的 error 级可疑项都看过并解释过（不一定要清零，但不能没看）。

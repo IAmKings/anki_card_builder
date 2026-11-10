@@ -8,7 +8,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from ankicards.cli import main
-from ankicards.ingest import load_ingest
+from ankicards.ingest import IngestData, load_ingest
 from ankicards.plan import check_plan, compile_plan, diff_plan
 from ankicards.schema import load_spec
 
@@ -369,3 +369,47 @@ class PlanCompileTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PageRangeTest(unittest.TestCase):
+    """P7a：PDF 跨页段落用 page:N-M 引用，不再被迫按页截断。"""
+
+    PAGES = {1: "第一页最后一句没有结束", 2: "第二页接着说完。", 3: "第三页。"}
+
+    def ingest(self):
+        return IngestData(pages=dict(self.PAGES), format="pdf")
+
+    def plan(self, locator, quote="没有结束第二页接着说完。", **extra):
+        card = {"locator": locator, "quote": quote, "q": "这段在说什么？",
+                "a": "跨页续写。", "kind": "claim"}
+        card.update(extra)
+        return {"version": 1, "deck": {"name": "P", "source_kind": "pdf"},
+                "cards": [card], "skipped": []}
+
+    def test_cross_page_quote_passes(self):
+        report, stats = check_plan(self.plan("page:1-2"), self.ingest())
+        self.assertEqual(report.errors + report.warnings, [])
+        self.assertEqual(stats["cards"], 1)
+
+    def test_same_quote_on_single_page_still_fails(self):
+        report, _ = check_plan(self.plan("page:1"), self.ingest())
+        self.assertTrue(any("逐字子串" in msg for msg in report.errors))
+
+    def test_compile_writes_both_pages(self):
+        with TemporaryDirectory() as tmp:
+            report, _, out = compile_plan(self.plan("page:1-2"), self.ingest(),
+                                          Path(tmp) / "deck")
+            self.assertTrue(report.ok)
+            payload = json.loads((out / "cards" / "01.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["cards"][0]["pages"], [1, 2])
+
+    def test_coverage_expands_page_range(self):
+        report, stats = check_plan(self.plan("page:1-2"), self.ingest(),
+                                   min_coverage=0.9)
+        self.assertEqual((stats["covered"], stats["groups"]), (2, 3))
+        self.assertTrue(any("2/3 页被覆盖" in msg for msg in report.errors))
+
+    def test_reversed_page_range_reports(self):
+        report, _ = check_plan(self.plan("page:2-1", quote="第二页接着说完。"),
+                               self.ingest())
+        self.assertTrue(any("区间倒置" in msg for msg in report.errors))
