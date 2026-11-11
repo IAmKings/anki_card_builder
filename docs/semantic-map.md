@@ -118,3 +118,24 @@ python3 -m ankicards derive merge plan_derive.json --deck dist/Android面试 --s
 要批量放开用 `--prefer-semantic`，风险自负。
 
 其余关系（近重复、中心度、孤立点）仍只在报告里，不自动写卡。
+
+## 对比题候选（卡内条目）
+
+跨卡邻居的实测结论：在「一题一卡」的牌组里，互为最近邻的两张卡**多半是同一知识点的不同问法**
+（例如 `ThreadLocal 原理` 与 `ThreadLocal 为什么内存泄漏`），当干扰项或对比题都会跑偏。
+
+真正可对比的是**同一张卡答案里的并列条目**：
+
+```bash
+python3 scripts/contrast_seeds.py --seeds .work/semantic/seeds.json --deck dist/Android面试 --out .work/semantic/contrast.json
+```
+
+做法：按 `•`/换行拆条目，要求 `标签：内容` 形式，过滤抽象标签（`性能好`/`概念`/`优点`…），
+相邻条目两两配对，输出「A 和 B 有什么区别？」候选，附原文片段。
+
+实测 Android 1270 张：得到 60 对候选，可直接用的如
+`String` vs `StringBuffer`、`final` vs `finally`、`Application Context` vs `Activity Context`、
+`强引用` vs `软引用`；噪声主要是把「优点/缺点」这类抽象词当标签，已在脚本里过滤。
+
+**边界**：仍只出候选。对比题的答案同时引用两条原文，现有 plan 是单 `locator + quote`，
+要落成卡片得先做多引用契约（M3），否则只能人工写卡。

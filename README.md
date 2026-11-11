@@ -328,6 +328,25 @@ python3 -m ankicards derive merge plan_derive.json --deck dist/Android面试 --s
 - `merge` 会把改过的卡标 `review: true`，默认每题最多换 1 条；`--prefer-semantic` 才放开。
 - `derive plan` 里 same-deck 够用时语义项不参与（兜底），只有同牌组不够时才补位。
 - 语义项在 `check` 里记 `origin: "semantic"`，和 model 候选一样进入人审清单。
+
+### 对比题候选（卡内条目，M2 后续）
+
+跨卡邻居在真实牌组里多是「同一道题的不同问法」，不是对比项；真正能对比的是**一张卡答案里的并列条目**
+（`强引用：… • 软引用：…`）。用脚本把它们挑出来：
+
+```bash
+python3 scripts/contrast_seeds.py --seeds .work/semantic/seeds.json --deck dist/Android面试 --out .work/semantic/contrast.json
+```
+
+输出 `contrast.json` / `contrast.md`：每对包含两个标签、原条目文字、以及建议问法
+（「A」和「B」有什么区别？）。实测 Android 前 60 对里能直接用的如
+`String` vs `StringBuffer`、`final` vs `finally`、`Application Context` vs `Activity Context`。
+
+要点：
+
+- 只产出候选，不写卡。对比题的答案要同时引用两条原文，需要多引用契约（未实现）。
+- 默认 `--mode list`（卡内条目）；`--mode neighbor` 是跨卡邻居，实测多是近重复，适合合并/改写而不是对比。
+- 抽象标签（「性能好」「概念」「优点」）会被过滤，不做对比题。
 - 模型交回的候选必须长度 2–60 字、不与正确项/已有选项重复，否则 merge 直接拒收并打印原因。
 - 候选长度与正确项相差不要超过 50%（packet 里带 `correct_chars`）；`derive check` 发现选项
   最长/最短超过 2 倍时会给「长度可能泄漏答案」提示。
