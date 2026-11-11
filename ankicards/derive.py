@@ -50,6 +50,9 @@ CANDIDATES_FORMAT = {"items": [{"source_key": "源卡 key", "distractors": ["候
 CHOICE_KINDS = ("fact", "procedure")
 DISTRACTOR_SOURCES = ("same-deck", "local", "hybrid", "none")
 SOURCE_MODES = ("short", "full", "off")
+MAX_CONTRAST_SOURCES = 3
+CONTRAST_MIN_QUOTE = 8
+CONTRAST_MAX_QUOTE = 300
 
 MIN_ANSWER_CHARS = 8
 MAX_CLOZE_TEXT = 160
@@ -777,11 +780,57 @@ def merge_candidates(plan: dict, candidates: list[dict],
     stats["semantic_replaced"] = semantic_replaced
     return warnings, stats
 
+def _squeeze(text) -> str:
+    """去掉全部空白：HTML 标签清理会在中文里留下空格，逐字比对时忽略它们。"""
+    return re.sub(r"\s+", "", str(text or ""))
+
+
+def _check_contrast(entry: dict, index: dict, where: str, report, stats) -> str | None:
+    """对比题：sources 里每条引用都必须逐字来自源卡答案，答案必须包含它们。"""
+    sources = entry.get("sources")
+    if not isinstance(sources, list) or not (1 <= len(sources) <= MAX_CONTRAST_SOURCES):
+        report.add_error(f"{where}.sources", f"必须是 1–{MAX_CONTRAST_SOURCES} 条 {{key, quote}}")
+        return None
+    quotes: list[str] = []
+    for j, item in enumerate(sources):
+        if not isinstance(item, dict):
+            report.add_error(f"{where}.sources[{j}]", "必须是对象")
+            continue
+        src = index.get(str(item.get("key") or ""))
+        if src is None:
+            report.add_error(f"{where}.sources[{j}].key", "源卡不存在")
+            continue
+        quote = normalize(item.get("quote", ""))
+        if not (CONTRAST_MIN_QUOTE <= len(quote) <= CONTRAST_MAX_QUOTE):
+            report.add_error(f"{where}.sources[{j}].quote",
+                             f"长度必须在 {CONTRAST_MIN_QUOTE}–{CONTRAST_MAX_QUOTE} 字，实际 {len(quote)}")
+            continue
+        if _squeeze(quote) not in _squeeze(src.answer):
+            report.add_error(f"{where}.sources[{j}].quote", "不是源卡答案的逐字子串")
+            continue
+        quotes.append(quote)
+    if len({_squeeze(q) for q in quotes}) != len(quotes):
+        report.add_error(f"{where}.sources", "引用不能重复")
+    q = normalize(entry.get("q", ""))
+    if not q:
+        report.add_error(f"{where}.q", "缺少问题")
+    a = normalize(entry.get("a", ""))
+    if not a:
+        report.add_error(f"{where}.a", "缺少答案")
+    squeezed_answer = _squeeze(a)
+    for quote in quotes:
+        if _squeeze(quote) not in squeezed_answer:
+            report.add_error(f"{where}.a", "答案必须包含每条引用原文（逐字），不能只写结论")
+            break
+    stats["contrast"] = stats.get("contrast", 0) + 1
+    return "contrast|" + q + "|" + "|".join(quotes)
+
+
 def check_plan(plan: dict, spec: DeckSpec, ingest: IngestData | None = None,
                allow_model: bool = False) -> tuple[Report, dict]:
     report = Report()
-    stats = {"cloze": 0, "choice": 0, "model_options": 0, "review": 0,
-             "origins": {}, "answer_positions": {}}
+    stats = {"cloze": 0, "choice": 0, "contrast": 0, "model_options": 0,
+             "review": 0, "origins": {}, "answer_positions": {}}
     index = source_index(spec)
     seen_pairs: set[tuple[str, str]] = set()
     seen_bodies: dict[str, str] = {}
@@ -791,8 +840,16 @@ def check_plan(plan: dict, spec: DeckSpec, ingest: IngestData | None = None,
             report.add_error(where, "必须是对象")
             continue
         ctype = entry.get("type")
-        if ctype not in ("cloze", "choice"):
-            report.add_error(f"{where}.type", f"必须是 cloze/choice，实际为 {ctype!r}")
+        if ctype not in ("cloze", "choice", "contrast"):
+            report.add_error(f"{where}.type", f"必须是 cloze/choice/contrast，实际为 {ctype!r}")
+            continue
+        if ctype == "contrast":
+            body = _check_contrast(entry, index, where, report, stats)
+            if body:
+                if body in seen_bodies:
+                    report.add_error(where, f"与 {seen_bodies[body]} 渲染内容相同")
+                else:
+                    seen_bodies[body] = where
             continue
         source = index.get(str(entry.get("source_key") or ""))
         if source is None:
@@ -915,9 +972,32 @@ def check_plan(plan: dict, spec: DeckSpec, ingest: IngestData | None = None,
 def build_deck(plan: dict, spec: DeckSpec) -> DeckData:
     deck = DeckData(name=spec.name, source_kind=spec.source_kind)
     show = str((plan.get("options") or {}).get("show_source") or "short")
+    index = source_index(spec)
     seq: dict[tuple[str, str], int] = {}
     for entry in plan.get("cards") or []:
         ctype = entry["type"]
+        if ctype == "contrast":
+            keys = [str(item.get("key")) for item in entry.get("sources") or []]
+            ordered = list(dict.fromkeys(keys))
+            base = "|".join(ordered)
+            number = seq.get(("对比题", base), 0)
+            seq[("对比题", base)] = number + 1
+            key = derive_key(spec.name, "对比题", base, number)
+            tags = ["derived:contrast", "derived-from:" + ",".join(ordered)]
+            if entry.get("kind"):
+                tags.append(f"kind:{entry['kind']}")
+            answer = str(entry.get("a") or "")
+            if show != "off":
+                lines = []
+                for one in ordered:
+                    src = index.get(one)
+                    if src:
+                        lines.append(src.q if len(src.q) <= 80 else src.q[:80] + "…")
+                if lines:
+                    answer = f"{answer}\n\n來源：" + " / ".join(lines)
+            deck.add("对比题", {"type": "qa", "q": entry.get("q"), "a": answer,
+                                "source": "derived:contrast", "tags": tags, "key": key})
+            continue
         section = "填空" if ctype == "cloze" else "选择题"
         pair = (entry["source_key"], ctype)
         number = seq.get(pair, 0)
@@ -942,6 +1022,52 @@ def build_deck(plan: dict, spec: DeckSpec) -> DeckData:
             card["a"] = a
         deck.add(section, card)
     return deck
+
+
+def build_contrast_plan(pairs_doc: dict, spec: DeckSpec, limit: int = 60) -> dict:
+    """把 contrast_seeds.py 的候选折成 plan：每条引用逐字取自源卡答案。"""
+    index = source_index(spec)
+    cards: list[dict] = []
+    seen: set[tuple[str, str, str]] = set()
+    for pair in pairs_doc.get("pairs") or []:
+        key = str(pair.get("card") or "")
+        src = index.get(key)
+        if src is None or not src.is_qa:
+            continue
+        left = pair.get("left") or {}
+        right = pair.get("right") or {}
+        texts = []
+        for side in (left, right):
+            raw = normalize(side.get("text", ""))
+            if not raw:
+                texts.append("")
+                continue
+            excerpt = pick_excerpt(raw, CONTRAST_MAX_QUOTE) or raw[:CONTRAST_MAX_QUOTE]
+            texts.append(normalize(excerpt))
+        if any(len(text) < CONTRAST_MIN_QUOTE for text in texts):
+            continue
+        left_text, right_text = texts
+        sig = (key, left_text, right_text)
+        if sig in seen:
+            continue
+        seen.add(sig)
+        label_a = normalize(left.get("label", ""))
+        label_b = normalize(right.get("label", ""))
+        q = normalize(pair.get("prompt", "")) or f"「{label_a}」和「{label_b}」有什么区别？"
+        if label_a and label_b:
+            answer = f"{label_a}：{left_text}；{label_b}：{right_text}"
+        else:
+            answer = f"{left_text}；{right_text}"
+        cards.append({"type": "contrast", "kind": "claim", "q": q, "a": answer,
+                      "sources": [{"key": key, "quote": left_text},
+                                  {"key": key, "quote": right_text}],
+                      "source_key": key, "source_q": src.q})
+        if len(cards) >= limit:
+            break
+    return {"version": DERIVED_VERSION,
+            "source": {"deck": spec.name, "cards": len(index)},
+            "options": {"count": 0, "show_source": "short"},
+            "cards": cards, "skipped": []}
 
 
 def compile_plan(plan: dict, spec: DeckSpec, out: str | Path,
@@ -1002,7 +1128,8 @@ def build_packet(spec: DeckSpec, limit: int = 0,
 def summary(plan: dict) -> str:
     cards = plan.get("cards") or []
     cloze = sum(1 for c in cards if c.get("type") == "cloze")
-    choice = len(cards) - cloze
+    contrast = sum(1 for c in cards if c.get("type") == "contrast")
+    choice = sum(1 for c in cards if c.get("type") == "choice")
     origins: dict[str, int] = {}
     for card in cards:
         for item in card.get("options") or []:
@@ -1015,5 +1142,6 @@ def summary(plan: dict) -> str:
         skipped[item.get("reason", "?")] = skipped.get(item.get("reason", "?"), 0) + 1
     tail = " / ".join(f"{k} {v}" for k, v in sorted(skipped.items())) or "无"
     origin_text = " / ".join(f"{k} {v}" for k, v in sorted(origins.items())) or "无"
-    return (f"填空 {cloze} / 选择 {choice}；干扰项 {origin_text}；"
+    extra = f" / 对比 {contrast}" if contrast else ""
+    return (f"填空 {cloze} / 选择 {choice}{extra}；干扰项 {origin_text}；"
             f"未出卡 {len(plan.get('skipped') or [])}（{tail}）")

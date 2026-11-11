@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 from ankicards import cli
 from ankicards.derive import (
     DeriveOptions,
+    build_contrast_plan,
     build_deck,
     build_packet,
     build_plan,
@@ -428,4 +429,72 @@ class SeedsTest(unittest.TestCase):
             path.write_text(json.dumps({"version": 2, "cards": []}), encoding="utf-8")
             with self.assertRaises(CardError):
                 load_seeds(path)
+
+
+CONTRAST_CARD = {
+    "type": "qa",
+    "q": "引用类型有哪些？",
+    "a": "强引用（StrongReference）：垃圾回收器绝不回收。软引用（SoftReference）：内存不足时在 OOM 前回收。",
+    "tags": ["Java"],
+}
+
+
+class ContrastTest(unittest.TestCase):
+    def _plan(self, root: Path):
+        deck = write_deck(root / "src", [CONTRAST_CARD], name="对比测试")
+        spec = load_spec(deck)
+        key = source_key("", spec.name, CONTRAST_CARD)
+        pairs = {"pairs": [{
+            "card": key,
+            "prompt": "「强引用」和「软引用」有什么区别？",
+            "left": {"label": "强引用", "text": "垃圾回收器绝不回收"},
+            "right": {"label": "软引用", "text": "内存不足时在 OOM 前回收"},
+        }]}
+        return spec, build_contrast_plan(pairs, spec)
+
+    def test_plan_validates_and_counts(self):
+        with TemporaryDirectory() as tmp:
+            spec, plan = self._plan(Path(tmp))
+            self.assertEqual(len(plan["cards"]), 1)
+            report, stats = check_plan(plan, spec)
+            self.assertTrue(report.ok, report.errors)
+            self.assertEqual(stats["contrast"], 1)
+
+    def test_tampered_quote_rejected(self):
+        with TemporaryDirectory() as tmp:
+            spec, plan = self._plan(Path(tmp))
+            plan["cards"][0]["sources"][0]["quote"] = "垃圾回收器不会回收"
+            report, _ = check_plan(plan, spec)
+            self.assertFalse(report.ok)
+            self.assertIn("逐字子串", " ".join(report.errors))
+
+    def test_answer_must_contain_quotes(self):
+        with TemporaryDirectory() as tmp:
+            spec, plan = self._plan(Path(tmp))
+            plan["cards"][0]["a"] = "两者回收时机不同"
+            report, _ = check_plan(plan, spec)
+            self.assertFalse(report.ok)
+            self.assertIn("答案必须包含", " ".join(report.errors))
+
+    def test_compile_writes_contrast_section(self):
+        with TemporaryDirectory() as tmp:
+            spec, plan = self._plan(Path(tmp))
+            out = Path(tmp) / "out"
+            compile_plan(plan, spec, out, force=True)
+            built = load_spec(out)
+            cards = [c for sec in built.sections if sec["deck"] == "对比题" for c in sec["cards"]]
+            self.assertEqual(len(cards), 1)
+            self.assertEqual(cards[0]["type"], "qa")
+            self.assertIn("derived:contrast", cards[0]["tags"])
+            self.assertTrue(cards[0]["q"].startswith("「强引用」"))
+
+    def test_short_quotes_are_skipped(self):
+        with TemporaryDirectory() as tmp:
+            deck = write_deck(Path(tmp) / "src", [CONTRAST_CARD], name="对比测试")
+            spec = load_spec(deck)
+            key = source_key("", spec.name, CONTRAST_CARD)
+            pairs = {"pairs": [{"card": key, "prompt": "q",
+                                "left": {"label": "a", "text": "绝不回收"},
+                                "right": {"label": "b", "text": "OOM 前回收"}}]}
+            self.assertEqual(build_contrast_plan(pairs, spec)["cards"], [])
 

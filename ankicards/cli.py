@@ -380,6 +380,25 @@ def cmd_derive_compile(args) -> int:
     return 0
 
 
+def cmd_derive_contrast(args) -> int:
+    import json
+
+    from .derive import build_contrast_plan
+    from .schema import load_json, load_spec
+
+    spec = load_spec(Path(args.deck))
+    pairs = load_json(Path(args.pairs))
+    plan = build_contrast_plan(pairs, spec, limit=args.limit)
+    if not plan["cards"]:
+        print("✗ 候选里没有可折成对比题的条目（引用太短或源卡不存在）")
+        return 1
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(plan, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"写出 {out}（对比 {len(plan['cards'])} 张）")
+    return 0
+
+
 def cmd_derive_report(args) -> int:
     from .derive import _options_of, load_derived_plan
 
@@ -693,6 +712,13 @@ def main(argv: list[str] | None = None) -> int:
                                   help="允许含模型写的干扰项（编译后仍应人工审）")
     p_derive_compile.add_argument("--force", action="store_true", help="覆盖已有输出目录")
     p_derive_compile.set_defaults(func=cmd_derive_compile)
+
+    p_derive_contrast = derive_sub.add_parser("contrast", help="把对比题候选折成派生 plan")
+    p_derive_contrast.add_argument("pairs", help="contrast_seeds.py 产出的 contrast.json")
+    p_derive_contrast.add_argument("--deck", required=True, help="源牌组目录")
+    p_derive_contrast.add_argument("--out", default="plan_contrast.json", help="输出 plan（默认 plan_contrast.json）")
+    p_derive_contrast.add_argument("--limit", type=int, default=60, help="最多折多少张")
+    p_derive_contrast.set_defaults(func=cmd_derive_contrast)
 
     p_derive_report = derive_sub.add_parser("report", help="逐条打印派生 plan，供人审")
     p_derive_report.add_argument("plan", help="plan_derive.json 路径")

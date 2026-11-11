@@ -67,3 +67,10 @@
 
 改动方式（若触发）：新增 `模型名 · 选择`，字段 `Stem / Correct / Distractors / Explanation / Source / PageImage`，
 只供派生编译使用，问答与填空模型保持不变。
+
+
+## 对比题（多引用）
+
+`derive contrast` 把候选折成 `type: "contrast"` 的卡片，答案必须包含 `sources` 里每条 `quote`。
+校验时按去空白后的文本比对（HTML 标签清理会留下空格，不算改写）；每条引用仍需能指回源卡答案。
+编译到独立分区「对比题」，不混进填空题/选择题。

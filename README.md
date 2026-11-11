@@ -347,6 +347,32 @@ python3 scripts/contrast_seeds.py --seeds .work/semantic/seeds.json --deck dist/
 - 只产出候选，不写卡。对比题的答案要同时引用两条原文，需要多引用契约（未实现）。
 - 默认 `--mode list`（卡内条目）；`--mode neighbor` 是跨卡邻居，实测多是近重复，适合合并/改写而不是对比。
 - 抽象标签（「性能好」「概念」「优点」）会被过滤，不做对比题。
+
+### 对比题编译（多引用契约）
+
+对比题的答案同时引用两条原文，所以 `plan_derive.json` 新增了 `contrast` 类型，用 `sources` 记录多条引用：
+
+```json
+{"type": "contrast", "q": "「String」和「StringBuffer」有什么区别？",
+ "a": "String：不可变…；StringBuffer：可变、线程安全…",
+ "sources": [{"key": "…", "quote": "不可变…"}, {"key": "…", "quote": "可变、线程安全…"}]}
+```
+
+规则：
+
+- `sources` 1–3 条，每条 `quote` 必须是该卡答案的**逐字子串**（忽略空白差异，HTML 标签清理留下的空格不算改写）；
+- `a` 必须包含每一条 `quote`，否则视为「只写结论、没有引用」；
+- 同一 `q + quotes` 只允许出现一次；
+- 编译后落在独立分区「对比题」，卡片仍是 qa，标签 `derived:contrast` / `derived-from:<key>`。
+
+```bash
+python3 scripts/contrast_seeds.py --seeds .work/semantic/seeds.json --deck dist/Android面试 --out .work/semantic/contrast.json
+python3 -m ankicards derive contrast .work/semantic/contrast.json --deck dist/Android面试 --out plan_contrast.json
+python3 -m ankicards derive check plan_contrast.json --deck dist/Android面试
+python3 -m ankicards derive compile plan_contrast.json --deck dist/Android面试 --out dist/Android-对比
+```
+
+实测 Android：58 张对比题通过校验、编译、build 与 `verify`（结构检查通过，无重复 guid）。
 - 模型交回的候选必须长度 2–60 字、不与正确项/已有选项重复，否则 merge 直接拒收并打印原因。
 - 候选长度与正确项相差不要超过 50%（packet 里带 `correct_chars`）；`derive check` 发现选项
   最长/最短超过 2 倍时会给「长度可能泄漏答案」提示。
