@@ -26,6 +26,19 @@
 - **可卡性预检**：`scripts/precheck.py` 先算编号点/数字句/段长，PDF 按行拆，决定走适配器还是 plan。
 - **数字等价**：`三天` 与 `3 天` 按数值比对，写法不同只提示；值不同照旧报错。
 
+## 0.4.1 追加：从牌组派生填空与选择题
+
+第一轮抽取出卡片之后，可以再读一遍**牌组本身**，把已有的问答改造成填空题与选择题：
+
+```bash
+python3 -m ankicards derive plan --deck dist/Android面试 --out plan_derive.json --seed 20261111
+python3 -m ankicards derive check plan_derive.json --deck dist/Android面试
+python3 -m ankicards derive compile plan_derive.json --deck dist/Android面试 --out dist/Android-派生
+```
+
+源牌组只读；正确项与挖空都是源答案里的逐字片段，代码块/模板/压平表格整卡跳过。
+细节与参数见下文「派生题：填空题与选择题」。
+
 ## 快速开始
 
 ### 1. 下载卡组
@@ -385,7 +398,7 @@ python3 -m ankicards check  /tmp/web-deck --ingest .work/ingest/example_com-arti
 - **需要真实相机/PDF 才能复现的牌组**：同时加一份合成 fixture，否则 CI 无法回归。
 - **新格式**：写一个适配器（`@register`）产出 `DeckData`，禁止再新增一个独立生成脚本。
 
-### 发布与可复现构建（v0.4.0）
+### 发布与可复现构建（v0.4.1）
 
 发布物不再直接上传仓库里某个历史时点的 `output/*.apkg`，而是由 tag 指向的源码重建：
 
@@ -401,7 +414,7 @@ python3 scripts/apkg_identity.py old.apkg new.apkg
 - `.github/workflows/release.yml` 在 `v*` tag 上执行 `import → build → verify → --check-golden`，只上传 `dist/Android.apkg`、`dist/MQTT.apkg`。
 - `.github/workflows/verify.yml` 的 `public-decks` job 在每次 push/PR 重建并校验同一份 golden。
 - v0.3.2 的 P0 证据（旧包与 HEAD 重建的 0/1270、0/200 对比）见 [`docs/evidence/v0.3.2-release-identity.md`](docs/evidence/v0.3.2-release-identity.md)。
-- 0.4.0 的变更清单与验证记录见 [`CHANGELOG.md`](CHANGELOG.md)。
+- 0.4.0 / 0.4.1 的变更清单与验证记录见 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ### CI/CD
 

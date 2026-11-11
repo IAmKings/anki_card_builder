@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.4.1（2026-11-11）
+
+在第一轮抽取出的牌组之上做**派生题**：读现有卡片的问题与答案，生成填空题与选择题。
+源牌组只读，派生结果先落成一份可审的 `plan_derive.json`，检查通过才编译成独立牌组。
+升级不涉及身份变化：Android.log / MQTT.apkg 的 guid、模型与牌组 id 与 0.4.0 相同。
+
+### 新增
+
+- **`derive` 子命令组**（`ankicards/derive.py`）：`plan` / `check` / `compile` / `report` / `packet`。
+  - `plan`：按 `--seed` 确定性挑题；`--options 3–5`（默认 4）、`--max-option-chars`、
+    `--cloze-per-card`、`--cloze-max-span`、`--distractor-source {same-deck,local,hybrid,none}`、
+    `--section`、`--cloze-limit`/`--choice-limit`、`--show-source {short,full,off}`、`--dry-run`。
+  - `check`：D1–D9 —— 挖空与正确项必须逐字来自源答案、选项唯一、无重复渲染体、
+    干扰项来源合法、model 干扰项需要 `--allow-model-distractors`。
+  - `compile`：写 `dist/<牌组>-派生/`，分区「填空」「选择题」；选择题渲染进 qa，不新增笔记类型；
+    背面附「來源：<源卡问题>」（`--show-source short` 默认截断 80 字）。
+  - `packet`：导出素材包给外部模型候选，工具本身不调用模型。
+- 填空题取源答案的逐字片段，`{{c1::…}}` 只围绕片段；选择题正确项同样是逐字片段，
+  不摘要、不改写。
+- 干扰项优先级：同牌组（`same-deck`）→ 本地语料（给了 `--ingest` 才启用，选项须能在声明定位里找到）
+  → 模型另写（`hybrid`，单题 ≤2、`origin:"model"`、必须人工审）。
+- 两道确定性闸：代码块/模板占位/被压平的表格行整卡跳过（`code_snippet`）；
+  挖空不得切在 token 中间（`30-40%`、`NetworkType.CONNECTED` 一律不出题）。
+
+### 变更
+
+- 新增 `--version` 输出（0.4.0 已在 0.4.1 之前提供，此处不重复）。
+
+### 修复
+
+- `plain()` 对双重转义 HTML 不幂等，导致 `source_q` 与片段校验对不上（`cards[1036]`）。
+- 选择题最初写成 `type=choice` 被 schema 拒绝，改为渲染进 `qa`。
+
+### 验证
+
+- `python -m unittest discover -s tests`：404 passed, 1 skipped。
+- `python3 scripts/build_public_decks.py --out dist --check-golden`：Android 1270 / MQTT 200，guid 不变。
+- 真实牌组：Android 1270 张 → 填空 402 / 选择 651（`code_snippet` 733、`no_cloze_span` 754）；
+  MQTT 200 张 → 填空 144 / 选择 178。派生包 `build` + `verify` 通过。
+
+## 0.4.0（2026-11-11）
+
 ## 0.4.0（2026-11-11）
 
 这一版把「文档 → 卡片」做成可审计链路：机器管可判定事实，判断落在 `plan.json` 上，
