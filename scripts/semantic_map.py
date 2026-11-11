@@ -54,10 +54,40 @@ def plain(text) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+def _norm(text) -> str:
+    return re.sub(r"\s+", "", str(text or ""))
+
+
+def _card_identity(card: dict) -> list:
+    """与 ankicards.schema.card_identity 对齐：key > image > cloze > qa。"""
+    key = card.get("key")
+    if isinstance(key, str) and key:
+        return ["key", key]
+    ctype = card.get("type", "qa")
+    if ctype == "image":
+        return ["image", str(card.get("img", "")), _norm(card.get("q", "")), _norm(card.get("a", ""))]
+    if ctype == "cloze":
+        return ["cloze", _norm(card.get("text", ""))]
+    return ["qa", _norm(card.get("q", "")), _norm(card.get("a", ""))]
+
+
+def deck_name(deck_dir: Path) -> str:
+    path = deck_dir / "deck.json"
+    if path.exists():
+        try:
+            name = json.loads(path.read_text(encoding="utf-8")).get("name")
+            if name:
+                return str(name)
+        except (ValueError, OSError):
+            pass
+    return deck_dir.name
+
+
 def load_cards(deck_dir: Path) -> list[dict]:
     files = sorted((deck_dir / "cards").glob("*.json"))
     if not files:
         raise SystemExit(f"✗ {deck_dir} 里没有 cards/*.json")
+    name = deck_name(deck_dir)
     cards = []
     for path in files:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -65,7 +95,7 @@ def load_cards(deck_dir: Path) -> list[dict]:
         for index, card in enumerate(data.get("cards", [])):
             key = card.get("key")
             if not isinstance(key, str) or not key:
-                seed = f"{section}|{card.get('q', '')}|{card.get('a', '')}"
+                seed = f"{name}::{section}|{json.dumps(_card_identity(card), ensure_ascii=False)}"
                 key = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:12]
             cards.append({
                 "key": key,
@@ -356,6 +386,42 @@ def format_markdown(report: dict, elapsed: float) -> str:
     return "\n".join(lines) + "\n"
 
 
+def build_seeds(report: dict, cards: list[dict]) -> dict:
+    """给 derive 用的精简关系表：每个 key 的邻居 + 答案开头（供作干扰项）。
+
+    只带派生需要的字段，不带向量；答案截断到 100 字，够挑干扰项，不复制全文。
+    """
+    answers: dict[str, str] = {}
+    sections: dict[str, str] = {}
+    for card in cards:
+        answers[card["key"]] = plain(card.get("a", ""))[:400]
+        sections[card["key"]] = card.get("section", "")
+    seed_cards: dict[str, dict] = {}
+    for entry in report.get("cards", []):
+        key = entry["key"]
+        seed_cards[key] = {
+            "section": sections.get(key, ""),
+            "q": entry.get("q", ""),
+            "answer": answers.get(key, ""),
+            "cluster": entry.get("cluster"),
+        }
+    for entry in report.get("neighbors", []):
+        key = entry.get("key")
+        if key in seed_cards:
+            seed_cards[key]["neighbors"] = entry.get("top", [])
+    return {
+        "version": 1,
+        "deck": report.get("deck"),
+        "model": report.get("model", {}).get("name"),
+        "params": report.get("params", {}),
+        "cards": seed_cards,
+        "clusters": [
+            {"id": c["id"], "label": c.get("label"), "size": c.get("size")}
+            for c in report.get("clusters", [])
+        ],
+    }
+
+
 def run(args) -> int:
     require_deps()
     import numpy as np
@@ -421,6 +487,11 @@ def run(args) -> int:
         md_path = out / "semantic.md"
         md_path.write_text(format_markdown(report, elapsed), encoding="utf-8")
         print(f"  {md_path}")
+
+    seeds = build_seeds(report, cards)
+    seeds_path = out / "seeds.json"
+    seeds_path.write_text(json.dumps(seeds, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"  {seeds_path}（{len(seeds['cards'])} 张卡的关系）")
     return 0
 
 

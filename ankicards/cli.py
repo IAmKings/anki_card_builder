@@ -324,7 +324,7 @@ def _print_derive_report(report, stats: dict) -> None:
 
 
 def cmd_derive_plan(args) -> int:
-    from .derive import DeriveOptions, build_plan, summary
+    from .derive import DeriveOptions, build_plan, load_seeds, summary
 
     spec = load_spec(Path(args.deck))
     ingest = load_ingest(Path(args.ingest)) if args.ingest else None
@@ -340,7 +340,8 @@ def cmd_derive_plan(args) -> int:
         choice_limit=args.choice_limit,
         show_source=args.show_source,
     )
-    plan = build_plan(spec, ingest, opts)
+    seeds = load_seeds(args.seeds) if getattr(args, "seeds", None) else None
+    plan = build_plan(spec, ingest, opts, seeds=seeds)
     print(f"源牌组 {spec.name}：{plan['source']['cards']} 张可入库")
     print(summary(plan))
     if args.dry_run:
@@ -414,15 +415,18 @@ def cmd_derive_packet(args) -> int:
 
 def cmd_derive_merge(args) -> int:
     from .derive import (check_plan, load_candidates, load_derived_plan,
-                         merge_candidates)
+                         load_seeds, merge_candidates)
 
     spec = load_spec(Path(args.deck))
     plan = load_derived_plan(args.plan)
     candidates = load_candidates(args.candidates)
+    seeds = load_seeds(args.seeds) if getattr(args, "seeds", None) else None
     warnings, stats = merge_candidates(plan, candidates,
                                        max_per_card=args.max_per_card,
                                        replace_same_deck=args.replace_same_deck,
-                                       prefer_model=args.prefer_model)
+                                       prefer_model=args.prefer_model,
+                                       seeds=seeds,
+                                       prefer_semantic=args.prefer_semantic)
     report, _ = check_plan(plan, spec, allow_model=True)
     _print_derive_report(report, {})
     for item in warnings:
@@ -434,6 +438,8 @@ def cmd_derive_merge(args) -> int:
     out.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     extra = f"（替换同牌组 {stats['replaced']} 条）" if stats.get("replaced") else ""
     print(f"并入模型候选 {stats['added']} 条 / 涉及 {stats['cards']} 张{extra}；写出 {out}")
+    if stats.get("semantic_added") or stats.get("semantic_replaced"):
+        print(f"语义池：新增 {stats.get('semantic_added', 0)} 条 / 替换 {stats.get('semantic_replaced', 0)} 条")
     return 0 if report.ok else 1
 
 def cmd_build(args) -> int:
@@ -666,6 +672,7 @@ def main(argv: list[str] | None = None) -> int:
     p_derive_plan.add_argument("--choice-limit", type=int, default=0, help="选择题最多出几张（0 不限）")
     p_derive_plan.add_argument("--show-source", choices=["short", "full", "off"], default="short",
                                help="选择题背面附源卡问题的形式（默认截断 80 字）")
+    p_derive_plan.add_argument("--seeds", help="semantic_map.py 产出的 seeds.json；用语义邻居当干扰项池")
     p_derive_plan.add_argument("--dry-run", action="store_true", help="只打印资格统计，不写文件")
     p_derive_plan.set_defaults(func=cmd_derive_plan)
 
@@ -709,6 +716,9 @@ def main(argv: list[str] | None = None) -> int:
                                 help="模型候选优先替换同牌组干扰项（配合 --options 3 可得 1 正确 + 2 模型）")
     p_derive_merge.add_argument("--replace-same-deck", action="store_true",
                                 help="选项已满时替换长度最不匹配的同牌组干扰项（不替换正确项）")
+    p_derive_merge.add_argument("--seeds", help="semantic_map.py 产出的 seeds.json；用语义邻居补/换干扰项")
+    p_derive_merge.add_argument("--prefer-semantic", action="store_true",
+                                help="语义邻居可替换多于一题一条（默认每题最多替换 1 条）")
     p_derive_merge.set_defaults(func=cmd_derive_merge)
 
     p_ingest = sub.add_parser("ingest", help="把 PDF/DOCX/TXT/EPUB/HTML 摄取成可寻址的文本 JSON")

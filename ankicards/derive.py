@@ -42,6 +42,8 @@ SKIP_REASONS = (
 
 CANDIDATES_VERSION = 1
 MAX_MODEL_PER_CARD = 2
+SEMANTIC_ORIGIN = "semantic"
+SEED_MIN_SCORE = 0.68
 OPTION_LENGTH_RATIO_MAX = 2.0
 CANDIDATES_FORMAT = {"items": [{"source_key": "源卡 key", "distractors": ["候选干扰项"]}]}
 
@@ -352,7 +354,8 @@ def _cloze_entries(source: SourceCard, opts: DeriveOptions) -> tuple[list[dict],
 
 
 def _choice_entry(source: SourceCard, index: dict[str, SourceCard],
-                  local_pool: list[tuple[str, str]], opts: DeriveOptions) -> tuple[dict | None, str | None]:
+                  local_pool: list[tuple[str, str]], opts: DeriveOptions,
+                  semantic: list[str] | None = None) -> tuple[dict | None, str | None]:
     if not source.is_qa:
         return None, "image_card"
     if source.kind and source.kind not in opts.choice_kinds:
@@ -398,6 +401,13 @@ def _choice_entry(source: SourceCard, index: dict[str, SourceCard],
             if candidate and accept(candidate):
                 distractors.append({"text": normalize(candidate), "correct": False,
                                     "origin": "same-deck", "source_key": other.key})
+    if semantic:
+        for item in semantic:
+            if len(distractors) >= opts.options - 1:
+                break
+            if accept(item):
+                distractors.append({"text": normalize(item), "correct": False,
+                                    "origin": SEMANTIC_ORIGIN})
     if "local" in tiers and len(distractors) < opts.options - 1:
         for locator, item in local_pool:
             if len(distractors) >= opts.options - 1:
@@ -428,8 +438,54 @@ def _choice_entry(source: SourceCard, index: dict[str, SourceCard],
     }, None
 
 
+def load_seeds(path) -> dict:
+    """读 semantic_map.py 产出的关系表；结构不对直接拒绝，不做猜测。"""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or data.get("version") != 1 or not isinstance(data.get("cards"), dict):
+        raise CardError(f"{path} 不是 semantic_map.py 产出的 seeds.json（需要 version=1 与 cards 对象）")
+    return data
+
+
+def _seed_pool(seeds: dict | None, key: str, max_chars: int) -> list[str]:
+    """取该卡语义邻居的答案开头，作为干扰项候选；只做池，不保证可用。"""
+    if not seeds:
+        return []
+    cards = seeds.get("cards") or {}
+    entry = cards.get(key) or {}
+    cluster = entry.get("cluster")
+    out: list[str] = []
+    for item in entry.get("neighbors") or []:
+        try:
+            score = float(item.get("score") or 0.0)
+        except (TypeError, ValueError):
+            score = 0.0
+        if score < SEED_MIN_SCORE:
+            continue
+        other = cards.get(item.get("key")) or {}
+        if cluster and other.get("cluster") and other["cluster"] != cluster:
+            continue
+        raw = str(other.get("answer") or other.get("answer_head") or "")
+        excerpt = pick_excerpt(plain(raw), max_chars)
+        text = normalize(excerpt or "")
+        if len(text) < MIN_OPTION_CHARS or text in out:
+            continue
+        out.append(text)
+    return out
+
+
+def _worst_same_deck(options: list[dict], answer_index: int, correct: str) -> int | None:
+    best, victim = -1, None
+    for k, opt in enumerate(options):
+        if k == answer_index or not isinstance(opt, dict) or opt.get("origin") != "same-deck":
+            continue
+        gap = abs(len(normalize(str(opt.get("text", "")))) - len(correct))
+        if gap > best:
+            best, victim = gap, k
+    return victim
+
+
 def build_plan(spec: DeckSpec, ingest: IngestData | None,
-               opts: DeriveOptions) -> dict:
+               opts: DeriveOptions, seeds: dict | None = None) -> dict:
     opts.check()
     index = source_index(spec)
     local_pool = _local_pool(ingest, opts.max_option_chars)
@@ -446,7 +502,8 @@ def build_plan(spec: DeckSpec, ingest: IngestData | None,
             stats["cloze"] += len(cloze)
         elif reason:
             skipped.append({"source_key": source.key, "reason": reason})
-        choice, reason = _choice_entry(source, index, local_pool, opts)
+        semantic = _seed_pool(seeds, source.key, opts.max_option_chars)
+        choice, reason = _choice_entry(source, index, local_pool, opts, semantic)
         if choice:
             cards.append(choice)
             stats["choice"] += 1
@@ -593,7 +650,9 @@ def _bump(counter: dict[str, int], key: str) -> None:
 def merge_candidates(plan: dict, candidates: list[dict],
                      max_per_card: int = MAX_MODEL_PER_CARD,
                      replace_same_deck: bool = False,
-                     prefer_model: bool = False) -> tuple[list[str], dict]:
+                     prefer_model: bool = False,
+                     seeds: dict | None = None,
+                     prefer_semantic: bool = False) -> tuple[list[str], dict]:
     """把模型候选并进对应选择题：长度、重复、相似度都过闸，超上限就拒绝。
 
     只标记 `review: true`，不替人拍板；真正的拦截在 check_plan 的 model 规则与
@@ -681,6 +740,41 @@ def merge_candidates(plan: dict, candidates: list[dict],
             card["review"] = True
             stats["cards"] += 1
             stats["added"] += added_here
+    semantic_added = semantic_replaced = 0
+    per_card_limit = 99 if prefer_semantic else 1
+    if seeds:
+        for card in [c for c in plan.get("cards") or [] if c.get("type") == "choice"]:
+            key = str(card.get("source_key") or "")
+            pool = _seed_pool(seeds, key, MAX_OPTION_CHARS)
+            options = card.get("options") or []
+            if not pool or not options:
+                continue
+            answer_index = int(card.get("answer_index", -1))
+            correct = normalize(card.get("source_excerpt", ""))
+            existing = {normalize(str(o.get("text", ""))) for o in options}
+            changed = 0
+            for text in pool:
+                if changed >= per_card_limit:
+                    break
+                if text in existing or _too_similar(text, correct):
+                    continue
+                if any(_too_similar(text, other) for other in existing if other):
+                    continue
+                victim = _worst_same_deck(options, answer_index, correct) if len(options) >= 3 else None
+                if len(options) < 3:
+                    options.append({"text": text, "origin": SEMANTIC_ORIGIN})
+                    semantic_added += 1
+                elif victim is not None:
+                    options[victim] = {"text": text, "origin": SEMANTIC_ORIGIN}
+                    semantic_replaced += 1
+                else:
+                    break
+                existing.add(text)
+                changed += 1
+            if changed:
+                card["review"] = True
+    stats["semantic_added"] = semantic_added
+    stats["semantic_replaced"] = semantic_replaced
     return warnings, stats
 
 def check_plan(plan: dict, spec: DeckSpec, ingest: IngestData | None = None,
@@ -781,8 +875,10 @@ def check_plan(plan: dict, spec: DeckSpec, ingest: IngestData | None = None,
                             report.add_error(f"{where}.options[{j}]", "local 干扰项在该定位文本里找不到")
                 elif origin == "model":
                     stats["model_options"] += 1
+                elif origin == SEMANTIC_ORIGIN:
+                    stats["semantic_options"] = stats.get("semantic_options", 0) + 1
                 else:
-                    report.add_error(f"{where}.options[{j}]", "origin 必须是 same-deck/local/model")
+                    report.add_error(f"{where}.options[{j}]", "origin 必须是 same-deck/local/model/semantic")
                 stats["origins"][str(origin)] = stats["origins"].get(str(origin), 0) + 1
             model_here = sum(1 for k, item in enumerate(raw_options)
                              if k != answer_index and isinstance(item, dict)

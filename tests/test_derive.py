@@ -13,10 +13,13 @@ from ankicards.derive import (
     compile_plan,
     derive_key,
     load_derived_plan,
+    load_seeds,
     merge_candidates,
     plain,
+    source_key,
     summary,
 )
+from ankicards.errors import CardError
 from ankicards.schema import load_spec
 
 
@@ -369,3 +372,60 @@ class MergePolishTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SeedsTest(unittest.TestCase):
+    def _seeds(self, spec, head: str | None = None) -> dict:
+        cards = {}
+        for card in BASE_CARDS:
+            key = source_key("", spec.name, card)
+            cards[key] = {"section": "", "answer_head": plain(card.get("a", ""))[:60], "neighbors": []}
+        extra = {
+            "n1": "可以在 4096 个桶上预先分配再复制",
+            "n2": "按 2 倍容量重新哈希整张表",
+            "n3": "把旧表整段搬到新表再逐步迁移",
+        }
+        for name, text in extra.items():
+            cards[name] = {"section": "", "answer": text, "neighbors": []}
+        for key in list(cards)[:len(BASE_CARDS)]:
+            cards[key]["neighbors"] = [{"key": n, "score": 0.9} for n in extra]
+        if head:
+            cards["n1"]["answer"] = head
+        return {"version": 1, "deck": spec.name, "cards": cards}
+
+    def test_build_plan_uses_seed_neighbors(self):
+        with TemporaryDirectory() as tmp:
+            spec = load_spec(write_deck(Path(tmp) / "src", BASE_CARDS, name="语义测试"))
+            seeds = self._seeds(spec)
+            opts = DeriveOptions(options=3, distractor_source="none")
+            plan = build_plan(spec, None, opts, seeds=seeds)
+            choices = [c for c in plan["cards"] if c["type"] == "choice"]
+            self.assertTrue(choices)
+            origins = [o.get("origin") for c in choices for o in c["options"] if o.get("origin")]
+            self.assertIn("semantic", origins)
+            report, stats = check_plan(plan, spec)
+            self.assertTrue(report.ok, report.errors)
+            self.assertGreater(stats.get("semantic_options", 0), 0)
+
+    def test_merge_fills_from_seeds(self):
+        with TemporaryDirectory() as tmp:
+            spec = load_spec(write_deck(Path(tmp) / "src", BASE_CARDS, name="语义测试"))
+            opts = DeriveOptions(options=4, distractor_source="same-deck")
+            plan = build_plan(spec, None, opts)
+            seeds = self._seeds(spec, head="可以按 4096 个桶预先分配再复制")
+            warnings, stats = merge_candidates(plan, [], seeds=seeds)
+            self.assertEqual(warnings, [])
+            self.assertTrue(stats["semantic_added"] or stats["semantic_replaced"])
+            origins = [o.get("origin") for c in plan["cards"] if c["type"] == "choice"
+                       for o in c["options"] if o.get("origin")]
+            self.assertIn("semantic", origins)
+            report, _ = check_plan(plan, spec)
+            self.assertTrue(report.ok, report.errors)
+
+    def test_load_seeds_rejects_bad_shape(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "seeds.json"
+            path.write_text(json.dumps({"version": 2, "cards": []}), encoding="utf-8")
+            with self.assertRaises(CardError):
+                load_seeds(path)
+

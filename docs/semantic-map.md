@@ -96,11 +96,25 @@ python3 scripts/semantic_map.py \
 - 模型与计算全本地；脚本不发起网络请求（首次下载由人手动执行）。
 - 不在 CI 里跑：模型体积与耗时都不适合每次构建。M1 只产出报告；用关系生成种子/干扰项池是 M2。
 
-## 与 derive 的关系（M2，未实现）
+## 与 derive 的关系（M2，已实现）
 
-- 同簇邻居 → 出「区别/对比」类问题候选；
-- 近重复 → 合并或改写建议；
-- 中心度 → 优先补卡/换问法；
-- `derive merge` 的 T1 干扰项池可以换成「语义近邻但答案不同」的卡，而不是随机同牌组池。
+`semantic_map.py` 除了 `semantic.json`，还写 `seeds.json`（每张卡的簇与邻居）。`derive` 消费它：
 
-这些都要先有报告，人工抽查通过后再接。
+```bash
+python3 scripts/semantic_map.py --deck dist/Android面试 --model ~/models/bge-small-zh --out-dir .work/semantic
+python3 -m ankicards derive plan --deck dist/Android面试 --seeds .work/semantic/seeds.json --out plan_derive.json
+python3 -m ankicards derive merge plan_derive.json --deck dist/Android面试 --seeds .work/semantic/seeds.json
+```
+
+实测（Android，1270 张，2026-11-11）：
+
+- `plan --seeds --options 4`：same-deck 1953 条填满，语义 0 条——语义只做兜底；
+- `merge --seeds`：替换 526 条（每题最多 1 条），`derive check` 通过；
+- 抽检质量两极：`强引用` 题旁出现 `软引用` 的定义、`双亲委派` 题旁出现「保证核心 API 安全」——可当同类项；
+  但也会混入 `finalize`（问 `final` 时）、`HashMap`（问 `StringBuilder` 时）这类**同字段不同题**的答案。
+
+**限制**：向量邻居只保证「主题接近」，不保证「答案错误」。同主题的另一个答案往往也成立，
+所以语义项一律标 `review: true`，默认每题最多 1 条，必须人工确认它不是另一个正确答案。
+要批量放开用 `--prefer-semantic`，风险自负。
+
+其余关系（近重复、中心度、孤立点）仍只在报告里，不自动写卡。

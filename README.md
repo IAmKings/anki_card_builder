@@ -310,6 +310,24 @@ python3 -m ankicards derive check plan_derive.json --deck dist/Android面试 --a
 - 每题默认上限 2 条模型候选；已有 4 个选项时只剩 1 个位置，想要 2 条就用 `derive plan --options 3`。
 - `derive check` 对含模型候选的卡片出「需人工复审」提示；`derive compile` 必须显式加
   `--allow-model-distractors`，否则拒绝写盘。
+
+### 语义干扰项池（可选，M2）
+
+`scripts/semantic_map.py` 会顺带写出 `seeds.json`（卡片的语义邻居）。把它交给 `derive`，
+干扰项就能从「随机同牌组」换成「同一主题下的其他答案」：
+
+```bash
+python3 scripts/semantic_map.py --deck dist/Android面试 --model ~/models/bge-small-zh --out-dir .work/semantic
+python3 -m ankicards derive plan --deck dist/Android面试 --seeds .work/semantic/seeds.json --out plan_derive.json
+python3 -m ankicards derive merge plan_derive.json --deck dist/Android面试 --seeds .work/semantic/seeds.json
+```
+
+要点：
+
+- 语义邻居只是「同主题」，**不代表它是错的**——同主题的另一个答案经常也成立。它是候选，不是干扰项。
+- `merge` 会把改过的卡标 `review: true`，默认每题最多换 1 条；`--prefer-semantic` 才放开。
+- `derive plan` 里 same-deck 够用时语义项不参与（兜底），只有同牌组不够时才补位。
+- 语义项在 `check` 里记 `origin: "semantic"`，和 model 候选一样进入人审清单。
 - 模型交回的候选必须长度 2–60 字、不与正确项/已有选项重复，否则 merge 直接拒收并打印原因。
 - 候选长度与正确项相差不要超过 50%（packet 里带 `correct_chars`）；`derive check` 发现选项
   最长/最短超过 2 倍时会给「长度可能泄漏答案」提示。
