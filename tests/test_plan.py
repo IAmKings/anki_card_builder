@@ -442,6 +442,15 @@ class DensityTest(unittest.TestCase):
         self.assertAlmostEqual(stats["density"]["chars_per_card"], 25.0, places=1)
         self.assertEqual(stats["density"]["cards"], 2)
 
+    def test_manual_dense_warning_explains_exam_documents(self) -> None:
+        report, _ = self.check(make_plan([card_g2(), card_g3()]), density="manual")
+        [warning] = self.density_warnings(report, "密于")
+        self.assertIn("题库/考点型", warning)
+
+        report, _ = self.check(make_plan([card_g2(), card_g3()]), density="essay")
+        [warning] = self.density_warnings(report, "密于")
+        self.assertNotIn("题库/考点型", warning)
+
     def test_too_dense_warns_but_does_not_block(self) -> None:
         report, stats = self.check(make_plan([card_g2(), card_g3()]),
                                    density="essay")

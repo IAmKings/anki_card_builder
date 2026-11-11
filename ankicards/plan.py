@@ -726,10 +726,12 @@ def check_plan(plan: dict, ingest: IngestData,
                                     "chars_per_card": per_card}
                 if per_card is not None:
                     if per_card < low:
-                        report.add_warning(
-                            "density",
-                            f"平均 {per_card:.0f} 字/张，密于 {density} 口径的 "
-                            f"{low}–{high}：可能把信息硬拆成了卡片")
+                        message = (f"平均 {per_card:.0f} 字/张，密于 {density} 口径的 "
+                                   f"{low}–{high}：可能把信息硬拆成了卡片")
+                        if density == "manual":
+                            # 题库/考点型文档本来就是一条信息点一张卡，这条提示不适用
+                            message += "（题库/考点型文档密度天然偏高，可按用途忽略）"
+                        report.add_warning("density", message)
                     elif per_card > high:
                         report.add_warning(
                             "density",
