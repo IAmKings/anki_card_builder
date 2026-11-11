@@ -539,6 +539,81 @@ class ProcedureKindTest(unittest.TestCase):
         self.assertTrue(any("必须是" in e for e in report.errors))
 
 
+def write_plain_manifest(path: Path, lines: list[str]) -> Path:
+    """不带 groups 的 txt 清单：数字写法与定位无关，只测 E2 的等价判定。"""
+    units = [{"id": f"line:{i}", "line": i, "chars": len(t), "text": t}
+             for i, t in enumerate(lines, 1)]
+    manifest = {"format": "txt", "source": "demo.txt", "source_sha256": None,
+                "unit_kind": "line", "unit_count": len(units),
+                "total_chars": sum(u["chars"] for u in units),
+                "units": units, "warnings": [], "encoding": "utf-8"}
+    path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+class NumberFormTest(unittest.TestCase):
+    """E2：中文数字与阿拉伯数字按数值比对，等价即通过，但提示写法不同。"""
+
+    LINES = [
+        "试用期届满前，一方应当提前三天通知对方。",
+        "员工每年享有十天带薪年假。",
+        "培训费超过两百元的，需要签协议。",
+        "服务期最短为三点五年。",
+        "每年最多可请三十天事假。",
+        "迟到超过 1.5 小时按半天计算。",
+        "一班八小时，加班另计。",
+    ]
+
+    def setUp(self) -> None:
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.manifest = write_plain_manifest(self.dir / "demo.json", self.LINES)
+        self.ingest = load_ingest(self.manifest)
+
+    def card(self, line: int, answer: str, **overrides) -> dict:
+        card = {"locator": f"line:{line}", "quote": self.LINES[line - 1],
+                "kind": "fact", "q": "这一条怎么规定的？", "a": answer}
+        card.update(overrides)
+        return card
+
+    def check(self, cards):
+        return check_plan(make_plan(cards), self.ingest)
+
+    def test_digits_answer_against_chinese_quote(self) -> None:
+        report, _ = self.check([self.card(1, "提前 3 天通知对方。")])
+        self.assertEqual(report.errors, [])
+        self.assertTrue(any("写法与原文不同" in w for w in report.warnings))
+
+    def test_chinese_answer_against_digits_quote(self) -> None:
+        report, _ = self.check([self.card(6, "迟到超过一点五小时按半天算。")])
+        self.assertEqual(report.errors, [])
+        self.assertTrue(any("写法与原文不同" in w for w in report.warnings))
+
+    def test_shi_and_liang_parse(self) -> None:
+        report, _ = self.check([self.card(2, "每年 10 天年假。")])
+        self.assertEqual(report.errors, [])
+        report, _ = self.check([self.card(3, "超过 200 元要签协议。")])
+        self.assertEqual(report.errors, [])
+
+    def test_decimal_forms_are_equal(self) -> None:
+        report, _ = self.check([self.card(4, "服务期最短 3.5 年。")])
+        self.assertEqual(report.errors, [])
+
+    def test_different_values_still_error(self) -> None:
+        report, _ = self.check([self.card(1, "提前 10 天通知对方。")])
+        self.assertTrue(any("答案数字 10 在 quote 里找不到" in e for e in report.errors))
+
+        report, _ = self.check([self.card(6, "迟到超过 15 小时按半天算。")])
+        self.assertTrue(any("答案数字 15 在 quote 里找不到" in e for e in report.errors))
+
+    def test_bare_digit_sequence_not_parsed(self) -> None:
+        report, _ = self.check([self.card(
+            7, "一班八小时，加班另计。", kind="claim",
+            q="「一二三」在这里只是一个序列，不会被当成 123 吗？")])
+        self.assertEqual(report.errors, [])
+
+
 def write_block_manifest(path: Path, blocks: list[str]) -> Path:
     """web 形态的清单：block:N 定位，用来模拟「另一种格式切得不一样」。"""
     units = [{"id": f"block:{i}", "locator": f"block:{i}", "kind": "paragraph",

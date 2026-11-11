@@ -87,6 +87,83 @@ def _numbers(text: object) -> list[str]:
     return _NUMBER_RE.findall(purified)
 
 
+#: 中文数字：只认「数字 + 单位」（三天、四十小时、一百万元），不认裸序列「一二三」。
+_CN_DIGIT = {"〇": 0, "零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
+             "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+_CN_UNIT = {"十": 10, "百": 100, "千": 1000}
+_CN_NUM_RE = re.compile(
+    r"([〇零一二三四五六七八九十百千万亿两]+(?:点[〇零一二三四五六七八九]+)?)"
+    r"(?=\s*(?:个|名|位|天|日|周|星期|月|年|小时|分钟|秒|点|岁|人|次|种|倍"
+    r"|元|块|页|条|项|份|张|家|届|期|级|米|公里|%|\d))")
+
+
+def _cn_value(token: str) -> float | None:
+    """把「三十」「两百」「三点五」「一万二」解析成数值；解析不了返回 None。
+
+    只接受带单位或在上下文里明确是数量的形态，避免把「一二三」当成 123。
+    """
+    token = token.strip()
+    if not token or not any(
+            ch in _CN_DIGIT or ch in _CN_UNIT or ch in "万亿" for ch in token):
+        return None
+    if "点" in token:
+        head, _, tail = token.partition("点")
+        whole = _cn_value(head) if head else 0.0
+        if whole is None or not tail:
+            return None
+        if any(ch not in _CN_DIGIT for ch in tail):
+            return None
+        digits = "".join(str(_CN_DIGIT[ch]) for ch in tail)
+        return float(f"{int(whole)}.{digits}")
+    if len(token) > 1 and not any(ch in _CN_UNIT or ch in "万亿" for ch in token):
+        return None
+    total = 0
+    section = 0
+    number = 0
+    for ch in token:
+        if ch in _CN_DIGIT:
+            number = _CN_DIGIT[ch]
+        elif ch in _CN_UNIT:
+            section += (number or 1) * _CN_UNIT[ch]
+            number = 0
+        elif ch == "万":
+            section = (section + number) * 10000
+            total += section
+            section = 0
+            number = 0
+        elif ch == "亿":
+            total = (total + section + number) * 100000000
+            section = 0
+            number = 0
+        else:
+            return None
+    return float(total + section + number)
+
+
+def _cn_numbers(text: object) -> list[tuple[str, float]]:
+    """中文数字及其数值；单位前面的写法保留原样，供提示用。"""
+    found: list[tuple[str, float]] = []
+    for match in _CN_NUM_RE.finditer(str(text or "")):
+        value = _cn_value(match.group(1))
+        if value is not None:
+            found.append((match.group(1), value))
+    return found
+
+
+def _numeric_pairs(text: object) -> list[tuple[str, float, bool]]:
+    """卡面/原文里的数字：返回 (原样, 数值, 是否中文写法)。"""
+    pairs = [(raw, float(raw), False) for raw in _numbers(text)]
+    pairs.extend((raw, value, True) for raw, value in _cn_numbers(text))
+    seen: set[tuple[str, float]] = set()
+    unique = []
+    for raw, value, is_cn in pairs:
+        key = (raw, value)
+        if key not in seen:
+            seen.add(key)
+            unique.append((raw, value, is_cn))
+    return unique
+
+
 def load_plan(path: str | Path) -> dict:
     """读 plan.json；形状错误抛 CardError（退出码 2）。"""
     data = load_json(Path(path))
@@ -540,16 +617,29 @@ def check_plan(plan: dict, ingest: IngestData,
                     f"不是 {locator} 文本的逐字子串（空白差异已忽略）；"
                     "引用必须从原文复制，不能改写")
             quote_numbers = _numbers(quote_norm)
-            for number in _numbers(_answer_text(entry)):
-                if number not in quote_numbers:
+            quote_cn = _cn_numbers(quote_norm)
+            quote_cn_raw = {raw for raw, _ in quote_cn}
+            quote_values = {float(n) for n in quote_numbers} | {v for _, v in quote_cn}
+            form_mismatch: list[str] = []
+            for raw, value, is_cn in _numeric_pairs(_answer_text(entry)):
+                if value not in quote_values:
                     report.add_error(
                         f"{where}",
-                        f"答案数字 {number} 在 quote 里找不到：数字必须来自原文引用")
-            for number in _numbers(_question_stem(entry)):
-                if number not in quote_numbers:
+                        f"答案数字 {raw} 在 quote 里找不到：数字必须来自原文引用")
+                    continue
+                same_form = raw in quote_cn_raw if is_cn else raw in quote_numbers
+                if not same_form:
+                    form_mismatch.append(raw)
+            if form_mismatch:
+                report.add_warning(
+                    f"{where}",
+                    f"数字写法与原文不同（{'、'.join(form_mismatch)}）："
+                    "数值一致、判定通过，但查用时建议与原文同形")
+            for raw, value, _is_cn in _numeric_pairs(_question_stem(entry)):
+                if value not in quote_values:
                     report.add_warning(
                         f"{where}.q",
-                        f"问题里的数字 {number} 不在 quote 中；如果是编号可以忽略")
+                        f"问题里的数字 {raw} 不在 quote 中；如果是编号可以忽略")
             for identifier in _IDENTIFIER_RE.findall(_card_text(entry)):
                 if identifier not in quote_norm and identifier not in full_text:
                     report.add_warning(

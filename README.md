@@ -92,6 +92,9 @@
 python3 -m ankicards ingest <手册.pdf|笔记.docx|笔记.txt|book.epub|page.html|https://...>
 # MOBI/AZW 不支持：先用 Calibre ebook-convert 转成 EPUB，再走上面这条
 
+# 1.5) 可卡性预检：行级结构指标决定选路，页级版面指标只看跨页风险（只读，不写文件）
+python3 scripts/precheck.py --ingest .work/ingest/xxx.json [--json]
+
 # 2) 文档抽取：agent/人只写 plan.json（每条带逐字 quote），先校验再编译
 python3 -m ankicards plan check   plan.json --ingest .work/ingest/xxx.json --min-coverage 0.9 [--profile novel|essay] [--density essay] [--also 另一格式.json]
 python3 -m ankicards plan compile plan.json --out <牌组目录> --ingest .work/ingest/xxx.json [--with-key] [--profile novel|essay] [--density essay] [--incremental]
@@ -168,7 +171,7 @@ DOCX 摄取限制：压缩包 ≤20 MB、解压后 ≤200 MB、块数 ≤5000（
 | 校验 | 规则 |
 |---|---|
 | 引用 | `quote` 必须是定位文本的逐字子串（只忽略空白差异，标点必须一致） |
-| 数字 | 答案里出现的每个数字都必须能在 `quote` 里找到；问题里的数字只提醒 |
+| 数字 | 答案里的每个数字都必须能在 `quote` 里找到（中文数字与阿拉伯数字按数值比对，「三天」=「3 天」，写法不同只提示）；问题里的数字只提醒 |
 | 长度 | `quote` 8–300 字；`--profile novel`/`essay` 放宽到 800 字 |
 | 定位 | 必须存在于 ingest 产物、文本非空、区间起点不大于终点 |
 | 理由 | `skipped.reason` 必须属于枚举；`--profile` 决定可用语义理由 |

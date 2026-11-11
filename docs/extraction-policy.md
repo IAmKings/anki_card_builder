@@ -268,7 +268,7 @@ PDF 的定位单位是页，但排版上的段落会跨页。以前只能按单�
 
 | 指标 | 算法 | 阈值 | 指向的决策 |
 |---|---|---|---|
-| 编号点占比 | `^\d+[.、]` 开头的非空单元 / 非空单元 | >30% 可走 `*-points`；<10% 禁止 | 是否走自动适配器 |
+| 编号点占比 | 以 `1.` / `1.2` / `（一）` / `一、` / `第X条` 开头的非空单元 / 非空单元（PDF 按行拆） | >30% 可走 `*-points`；<10% 禁止 | 是否走自动适配器 |
 | 数字句占比 | 含 `\d` 的句子 / 总句子 | <3% 不出 `fact`；>30% `fact` 可为主力 | 卡型组合 |
 | 平均段长 | 非空单元字数均值（同时看中位数、>300 字占比） | >300 字占比 >20% → 长引用风险，优先 EPUB | 定位粒度、跨页风险 |
 | 引号密度 | （`「` + `“`）数 / 非空单元 | >0.8 个/段 → 对话/引语型，出情节卡或金句 | `phrase`/`fact` 取舍 |
@@ -284,25 +284,16 @@ PDF 的定位单位是页，但排版上的段落会跨页。以前只能按单�
 两者的数字句占比差 **87 倍**——这就是「同一套工具两种密度」的客观来源，不是写卡人
 的手感差异。
 
-可直接复制的算法（只读 ingest 清单，不改仓库）：
+算法已固化为脚本（只读 ingest 清单，不改仓库）：
 
-```python
-import json, re, statistics
-
-d = json.load(open("ingest.json"))
-units = [u for u in d["units"] if (u.get("text") or "").strip()]
-texts = [u["text"].strip() for u in units]
-joined = "\n".join(texts)
-sents = [s for s in re.split(r"[。！？!?…]+", joined) if s.strip()]
-lens = [len(t) for t in texts]
-print("编号点占比", sum(1 for t in texts if re.match(r"^\d+[.、]", t)) / len(texts))
-print("数字句占比", sum(1 for s in sents if re.search(r"\d", s)) / max(1, len(sents)))
-print("平均段长", statistics.mean(lens), "中位", statistics.median(lens),
-      ">300字占比", sum(1 for x in lens if x > 300) / len(lens))
-print("引号密度", (joined.count("「") + joined.count("“")) / len(texts))
-print("表格行占比", sum(1 for u in d["units"]
-      if str(u.get("locator") or u.get("id") or "").startswith("table:")) / len(d["units"]))
+```bash
+python3 scripts/precheck.py --ingest .work/ingest/xxx.json          # 人类可读
+python3 scripts/precheck.py --ingest .work/ingest/xxx.json --json   # 给脚本消费
 ```
+
+**PDF 必须先按行拆再算**：脚本会把 PDF 每页 `splitlines()` 成结构单元再算编号点与段长；
+页级指标（页均字数、>300 字的页占比）单独输出，只用来提示跨页风险。按页直接算会得到
+「编号点 0%、平均 1,017 字」这种与选路相反的结论（两份员工手册实测：页级 0%，行级 21–24%）。
 
 使用边界：
 
@@ -311,3 +302,16 @@ print("表格行占比", sum(1 for u in d["units"]
 - 阈值是启发式，不是断言。指标与人工判断冲突时，以人工判断为准，但要说明理由。
 - 指标低不代表不能出卡，只代表**不能出那一类卡**：散文数字句 0.6% 就不该有 `fact`，
   但它可以有很好的 `claim` 与 `style`。
+- 2026-11-11 起指标由 `scripts/precheck.py` 计算，编号点包含条款/中文编号形态；
+  §12 前面两个历史样本按当时更窄的 `^\d+[.、]` 规则算，数字不可直接对比。
+
+## 12.1 数字写法等价（E2，2026-11-11）
+
+`plan check` 的数字校验按**数值**比对，不按字面：
+
+- 卡面「3 天」、原文「三天」→ 通过，并提示「数字写法与原文不同」；
+- 卡面「三天」、原文「3 天」→ 同样通过；
+- 值不同照旧报错（`10` 对 `三十`、`1.5` 对 `15`）。
+
+中文数字只解析「数字 + 单位」形态（`三天`、`四十小时`、`两百元`、`三点五个月`）；
+裸序列（`一二三`）不当数字。解析失败回退到字面比对——宁可漏放，不可错放。
