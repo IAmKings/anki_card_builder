@@ -222,6 +222,10 @@ def _print_plan_report(report, stats: dict) -> None:
     if stats.get("coverage") is not None:
         line += (f" / 覆盖率 {stats['covered']}/{stats['groups']}"
                  f"（{stats['coverage']:.0%}）")
+    inc = stats.get("incremental")
+    if inc:
+        line += (f" / 增量 保留 {inc['kept']} 新增 {inc['new']}"
+                 f" 替换 {inc['replaced']} 下架 {inc['retired']}")
     for item in stats.get("also") or []:
         total = item["hit"] + item["miss"]
         line += f" / 交叉 {item['format']} {item['hit']}/{total}"
@@ -280,7 +284,8 @@ def cmd_plan_compile(args) -> int:
                                       density=args.density,
                                       density_min=args.density_min,
                                       density_max=args.density_max,
-                                      also=[load_ingest(path) for path in (args.also or [])])
+                                      also=[load_ingest(path) for path in (args.also or [])],
+                                      incremental=args.incremental)
     _print_plan_report(report, stats)
     if out is None:
         print("✗ 有错误，未写牌组")
@@ -499,6 +504,8 @@ def main(argv: list[str] | None = None) -> int:
     _add_also_arg(p_plan_compile)
     p_plan_compile.add_argument("--force", action="store_true",
                                 help="目标目录已有卡片时也强制覆盖")
+    p_plan_compile.add_argument("--incremental", action="store_true",
+                                help="并进已有牌组：保留未提及的旧卡、按 key 替换、按 plan.retired 下架")
     p_plan_compile.add_argument("--with-key", action="store_true",
                                 help="给每张卡生成稳定身份 key（只用于新牌组）")
     p_plan_compile.set_defaults(func=cmd_plan_compile)

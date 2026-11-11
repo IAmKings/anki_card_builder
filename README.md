@@ -94,7 +94,7 @@ python3 -m ankicards ingest <手册.pdf|笔记.docx|笔记.txt|book.epub|page.ht
 
 # 2) 文档抽取：agent/人只写 plan.json（每条带逐字 quote），先校验再编译
 python3 -m ankicards plan check   plan.json --ingest .work/ingest/xxx.json --min-coverage 0.9 [--profile novel|essay] [--density essay] [--also 另一格式.json]
-python3 -m ankicards plan compile plan.json --out <牌组目录> --ingest .work/ingest/xxx.json [--with-key] [--profile novel|essay] [--density essay]
+python3 -m ankicards plan compile plan.json --out <牌组目录> --ingest .work/ingest/xxx.json [--with-key] [--profile novel|essay] [--density essay] [--incremental]
 python3 -m ankicards plan diff    plan.json --deck <牌组目录>
 
 # 3) 校验卡片数据；--ingest 启用溯源闸门（页码/定位必须存在且有文本）
@@ -186,6 +186,11 @@ DOCX 摄取限制：压缩包 ≤20 MB、解压后 ≤200 MB、块数 ≤5000（
 | `fact` | 事实/数字 | quote 里应有数字或日期，否则提醒 |
 
 `plan compile` 会把卡型写成卡片标签 `kind:<kind>`（卡片字段不变）。
+
+**增量编译**（`--incremental`）：写进一个已存在的牌组，而不是重建。plan 里出现的卡按 `key`
+替换旧卡，`"retired": ["<key>", ...]` 里的卡下架，plan 没提到的旧卡原样保留。plan 里没写 key
+时会用与 `--with-key` 相同的推导生成——前提是牌组名、定位、卡序都没变。它不自动对账：
+Anki 侧删了卡，本地不会知道，要在 `retired` 里显式声明。
 
 `--profile novel` 会额外做**防剧透**检查：卡面直接复制后文才出现的整句（六字以上连续片段）
 会 warning；卡面提到后文才出场的拉丁名（如 Linda）会 warning；在 plan 里用

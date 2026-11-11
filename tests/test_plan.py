@@ -9,6 +9,7 @@ from tempfile import TemporaryDirectory
 
 from ankicards.cli import main
 from ankicards.ingest import IngestData, load_ingest
+from ankicards.errors import CardError
 from ankicards.plan import check_plan, compile_plan, diff_plan
 from ankicards.schema import load_spec
 
@@ -622,3 +623,101 @@ class SpoilerTest(unittest.TestCase):
         card = self.card("chapter:1/p:1", "Linda 是誰？", "不知道。", "第一章。天氣很好。")
         _, stats = check_plan(self.plan([card]), self.ingest, profile="manual")
         self.assertNotIn("spoiler", stats)
+
+
+class IncrementalTest(unittest.TestCase):
+    """plan compile --incremental：保留旧卡、按 key 替换、按 retired 下架。"""
+
+    def setUp(self) -> None:
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.ingest = load_ingest(write_block_manifest(self.dir / "ingest.json", [
+            "部署手册：本手册说明上线流程。",
+            "1. 幂等：同一请求重复执行结果一致。",
+            "重试时必须带同一请求号。",
+            "2. 端口：默认监听 8080，生产需改。",
+        ]))
+        self.deck = self.dir / "deck"
+
+    def card(self, locator: str, quote: str, q: str, a: str, key: str) -> dict:
+        return {"kind": "claim", "locator": locator, "quote": quote,
+                "q": q, "a": a, "type": "qa", "key": key}
+
+    def first(self) -> None:
+        plan = {"version": 1, "deck": {"name": "演示", "source_kind": "web"},
+                "cards": [self.card("block:2", "同一请求重复执行结果一致", "幂等是什么意思？",
+                                    "结果一致，无需额外处理", "aaaaaaaaaaaa"),
+                          self.card("block:4", "默认监听 8080，生产需改", "端口默认是多少？",
+                                    "8080，生产要改", "bbbbbbbbbbbb")]}
+        report, _, out = compile_plan(plan, self.ingest, self.deck)
+        self.assertTrue(report.ok, report.errors)
+        self.assertIsNotNone(out)
+
+    def test_merge_keeps_replaces_and_retires(self) -> None:
+        self.first()
+        plan = {"version": 1, "deck": {"name": "演示", "source_kind": "web"},
+                "cards": [self.card("block:2", "同一请求重复执行结果一致", "幂等是什么意思？",
+                                    "结果一致（改过措辞）", "aaaaaaaaaaaa"),
+                          self.card("block:3", "重试时必须带同一请求号", "重试要注意什么？",
+                                    "带同一请求号", "cccccccccccc")],
+                "retired": ["bbbbbbbbbbbb"]}
+        report, stats, out = compile_plan(plan, self.ingest, self.deck, incremental=True)
+        self.assertTrue(report.ok, report.errors)
+        self.assertIsNotNone(out)
+
+        spec = load_spec(self.deck)
+        cards = [card for section in spec.sections for card in section["cards"]]
+        self.assertEqual(sorted(card["key"] for card in cards),
+                         ["aaaaaaaaaaaa", "cccccccccccc"])
+        self.assertIn("改过措辞", [c for c in cards if c["key"] == "aaaaaaaaaaaa"][0]["a"])
+        self.assertEqual(stats["incremental"]["kept"], 0)
+        self.assertEqual(stats["incremental"]["new"], 1)
+        self.assertEqual(stats["incremental"]["retired"], 1)
+
+    def test_keeps_untouched_old_cards(self) -> None:
+        self.first()
+        plan = {"version": 1, "deck": {"name": "演示", "source_kind": "web"},
+                "cards": [self.card("block:3", "重试时必须带同一请求号", "重试要注意什么？",
+                                    "带同一请求号", "cccccccccccc")]}
+        report, stats, _ = compile_plan(plan, self.ingest, self.deck, incremental=True)
+        self.assertTrue(report.ok, report.errors)
+        self.assertEqual(stats["incremental"]["kept"], 2)
+        self.assertEqual(stats["incremental"]["new"], 1)
+
+    def test_derives_keys_when_missing(self) -> None:
+        self.first()
+        # block:3 之前没发布过，现算的 key 只会新增一张
+        plan = {"version": 1, "deck": {"name": "演示", "source_kind": "web"},
+                "cards": [{"kind": "claim", "locator": "block:3",
+                           "quote": "重试时必须带同一请求号", "q": "重试注意什么？",
+                           "a": "带同一请求号", "type": "qa"}]}
+        report, stats, out = compile_plan(plan, self.ingest, self.deck, incremental=True)
+        self.assertTrue(report.ok, report.errors)
+        self.assertEqual(stats["incremental"]["new"], 1)
+        cards = [c for section in load_spec(self.deck).sections for c in section["cards"]]
+        self.assertTrue(all(len(c["key"]) == 12 for c in cards))
+
+    def test_requires_existing_deck(self) -> None:
+        plan = {"version": 1, "deck": {"name": "演示", "source_kind": "web"},
+                "cards": [self.card("block:3", "重试时必须带同一请求号", "重试注意什么？",
+                                    "带同一请求号", "cccccccccccc")]}
+        with self.assertRaises(CardError):
+            compile_plan(plan, self.ingest, self.dir / "missing", incremental=True)
+
+    def test_retired_and_card_same_key_is_error(self) -> None:
+        plan = {"version": 1, "deck": {"name": "演示", "source_kind": "web"},
+                "cards": [self.card("block:3", "重试时必须带同一请求号", "重试注意什么？",
+                                    "带同一请求号", "aaaaaaaaaaaa")],
+                "retired": ["aaaaaaaaaaaa"]}
+        report, _ = check_plan(plan, self.ingest)
+        self.assertTrue(any("既是退场又要出卡" in e for e in report.errors))
+
+    def test_unknown_retired_key_warns(self) -> None:
+        self.first()
+        plan = {"version": 1, "deck": {"name": "演示", "source_kind": "web"},
+                "cards": [self.card("block:3", "重试时必须带同一请求号", "重试注意什么？",
+                                    "带同一请求号", "cccccccccccc")],
+                "retired": ["dddddddddddd"]}
+        report, _, _ = compile_plan(plan, self.ingest, self.deck, incremental=True)
+        self.assertTrue(any("不在现有牌组里" in w for w in report.warnings))

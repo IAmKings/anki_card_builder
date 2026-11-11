@@ -471,6 +471,13 @@ def check_plan(plan: dict, ingest: IngestData,
             "cards", "没有卡片：确认这份资料确实没有值得背的内容（全部记在 skipped）")
     stats["cards"], stats["skipped"] = len(cards), len(skipped)
 
+    retired = _retired_keys(plan, report)
+    if retired:
+        both = sorted(retired & {entry.get("key") for entry in cards
+                                 if isinstance(entry, dict) and isinstance(entry.get("key"), str)})
+        if both:
+            report.add_error("retired", f"这些 key 既是退场又要出卡：{', '.join(both)}")
+
     full_text = normalize("\n".join(ingest.locators.values()))
     entries: list[dict] = []
     card_ids: set[str] = set()
@@ -806,6 +813,75 @@ def build_deck(plan: dict, ingest: IngestData, with_key: bool = False) -> DeckDa
     return deck
 
 
+def _retired_keys(plan: dict, report: Report) -> set[str]:
+    """plan.retired：已发布过、这次要下架的卡 key。不自动对账，只认显式声明。"""
+    retired = plan.get("retired")
+    if retired is None:
+        return set()
+    if not isinstance(retired, list):
+        report.add_error("retired", "必须是 key 数组")
+        return set()
+    keys: set[str] = set()
+    for index, key in enumerate(retired):
+        if not isinstance(key, str) or not CARD_KEY_RE.fullmatch(key):
+            report.add_error(f"retired[{index}]",
+                             f"必须是 12 位小写十六进制字符串（当前 {key!r}）")
+            continue
+        keys.add(key)
+    return keys
+
+
+def _write_incremental(plan: dict, deck: DeckData, out: str | Path,
+                       report: Report, stats: dict) -> Path:
+    """把新卡并进已存在的牌组：保留未提及的旧卡、按 key 替换、按 retired 下架。"""
+    out = Path(out)
+    if not (out / "deck.json").exists():
+        raise CardError(f"{out} 不是已存在的牌组（缺 deck.json）："
+                        "--incremental 只能写进已发布的牌组，新牌组请直接 compile")
+    spec = load_spec(out)
+    fresh = [card for cards in deck.sections.values() for card in cards]
+
+    retired = _retired_keys(plan, report)
+    existing = [card for section in spec.sections for card in section["cards"]]
+    existing_keys = {card["key"] for card in existing if isinstance(card.get("key"), str)}
+    unknown = sorted(retired - existing_keys)
+    if unknown:
+        report.add_warning("retired", f"这些 key 不在现有牌组里，删除被忽略：{', '.join(unknown)}")
+
+    fresh_keys = {card["key"] for card in fresh}
+    fresh_ids = {_identity(card) for card in fresh}
+    kept: list[dict] = []
+    replaced = retired_hit = keyless = 0
+    for card in existing:
+        key = card.get("key")
+        if isinstance(key, str):
+            if key in retired:
+                retired_hit += 1
+                continue
+            if key in fresh_keys:
+                replaced += 1
+                continue
+        else:
+            if _identity(card) in fresh_ids:
+                replaced += 1
+                continue
+            keyless += 1
+        kept.append(card)
+
+    if keyless:
+        report.add_warning("incremental",
+                           f"{keyless} 张旧卡没有 key：无法被 retired 删除，只能按内容保留")
+    if spec.source_kind not in ("unknown", deck.source_kind):
+        report.add_warning("incremental",
+                           f"牌组原有 source_kind={spec.source_kind}，本次 plan 写的是 "
+                           f"{deck.source_kind}：确认是同一份资料")
+    stats["incremental"] = {"kept": len(kept), "new": len(fresh) - replaced,
+                            "replaced": replaced, "retired": retired_hit}
+    deck.name = spec.name
+    deck.sections = {spec.name: kept + fresh}
+    return write_deck(deck, out, force=True)
+
+
 def compile_plan(plan: dict, ingest: IngestData, out: str | Path,
                  force: bool = False,
                  min_coverage: float | None = None,
@@ -814,7 +890,8 @@ def compile_plan(plan: dict, ingest: IngestData, out: str | Path,
                  density: str | None = None,
                  density_min: int | None = None,
                  density_max: int | None = None,
-                 also: list[IngestData] | None = None) -> tuple[Report, dict, Path | None]:
+                 also: list[IngestData] | None = None,
+                 incremental: bool = False) -> tuple[Report, dict, Path | None]:
     """校验通过才写牌组；返回 (报告, 统计, 输出目录或 None)。"""
     report, stats = check_plan(plan, ingest, min_coverage=min_coverage,
                                profile=profile, density=density,
@@ -825,7 +902,11 @@ def compile_plan(plan: dict, ingest: IngestData, out: str | Path,
     if not plan.get("cards"):
         raise CardError("plan 里没有卡片：没有值得背的内容就不要编译牌组，"
                         "skipped 记录本身已经说明看过哪些段落")
-    deck = build_deck(plan, ingest, with_key=with_key)
+    # 增量必须按 key 对齐：plan 里没写 key 时用同一套 derive_key 现算，
+    # 与上次 `--with-key` 编译出的身份一致（同一牌组名 + 定位 + 序号）。
+    deck = build_deck(plan, ingest, with_key=with_key or incremental)
+    if incremental:
+        return report, stats, _write_incremental(plan, deck, out, report, stats)
     return report, stats, write_deck(deck, out, force=force)
 
 
