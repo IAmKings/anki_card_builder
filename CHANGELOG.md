@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.3（未发布）
+
+对比题正式并入 Android 发布牌组：卡内条目候选经 `derive contrast` 折成 58 张对比题，
+作为 `Android面试::对比题` 子牌组，与原 1270 张卡同包发布。
+
+### 新增
+
+- `data/Android/contrast.json`：60 条卡内条目对比候选（确定性文本，不含模型输出）。
+- `scripts/build_public_decks.py` 支持 `contrast` 字段：构建时自动生成对比题 plan、
+  编译并追加为独立分区；Android 发布物从 1270 张变为 1328 张。
+- `tests/golden/public_decks.json` 同步为 1328；`test_public_deck_identity` 断言更新。
+
+### 说明
+
+- 原 1270 张卡的 guid 不变，对比题新增 58 个 guid；导入后只多出 `Android面试::对比题`。
+- 对比题依赖源卡 key，`data/Android/contrast.json` 与牌组名（Android面试）绑定；
+  改牌组名需要重新生成候选。
+
 ## 0.4.2（2026-11-11）
 
 把「模型写干扰项」接进派生链路：素材包交给外部模型，候选只并入 plan，再走确定性校验与人审。

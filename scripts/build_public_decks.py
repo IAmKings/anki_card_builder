@@ -26,6 +26,7 @@ PUBLIC_DECKS = (
         "adapter": "android-md",
         "name": "Android面试",
         "out": "Android.apkg",
+        "contrast": "data/Android/contrast.json",
     },
     {
         "key": "mqtt",
@@ -48,6 +49,36 @@ def _run_cli(args: list[str], repo_root: Path) -> None:
         )
 
 
+def _append_contrast(deck_dir: Path, pairs: Path, repo_root: Path) -> int:
+    """把卡内条目对比候选折成对比题，作为独立分区并进牌组目录。"""
+    with tempfile.TemporaryDirectory(prefix="public-contrast-") as tmp:
+        plan = Path(tmp) / "plan_contrast.json"
+        compiled = Path(tmp) / "contrast_deck"
+        _run_cli(
+            ["derive", "contrast", str(pairs), "--deck", str(deck_dir), "--out", str(plan)],
+            repo_root,
+        )
+        _run_cli(
+            ["derive", "compile", str(plan), "--deck", str(deck_dir), "--out", str(compiled)],
+            repo_root,
+        )
+        files = sorted((compiled / "cards").glob("*.json"))
+        if not files:
+            raise RuntimeError(f"对比题编译没有产出卡片: {compiled}")
+        cards = []
+        for item in files:
+            cards.extend(json.loads(item.read_text(encoding="utf-8"))["cards"])
+        cards_dir = deck_dir / "cards"
+        cards_dir.mkdir(parents=True, exist_ok=True)
+        indexes = [int(p.stem) for p in cards_dir.glob("*.json") if p.stem.isdigit()]
+        target = cards_dir / f"{max(indexes, default=0) + 1:02d}.json"
+        target.write_text(
+            json.dumps({"deck": "对比题", "cards": cards}, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        return len(cards)
+
+
 def build_all(out_dir: Path, repo_root: Path = ROOT) -> dict[str, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     built: dict[str, Path] = {}
@@ -67,6 +98,8 @@ def build_all(out_dir: Path, repo_root: Path = ROOT) -> dict[str, Path]:
                 ],
                 repo_root,
             )
+            if deck.get("contrast"):
+                _append_contrast(deck_dir, repo_root / deck["contrast"], repo_root)
             out_path = out_dir / deck["out"]
             _run_cli(
                 ["build", str(deck_dir), "--out", str(out_path)],
