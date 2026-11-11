@@ -619,7 +619,9 @@ def ingest(source: str | Path, out: str | Path | None = None,
     if suffix in (".doc", ".docm"):
         raise IngestError(f"只支持 .docx；{suffix} 请先另存为 .docx")
     if suffix in (".md", ".markdown"):
-        raise IngestError(f"{suffix} 不是 PDF/DOCX/TXT；请用 `python3 -m ankicards import --adapter`。")
+        raise IngestError(
+            f"{suffix} 不是 PDF/DOCX/TXT/EPUB/HTML；"
+            "请用 `python3 -m ankicards import --adapter`，或先转成支持的格式。")
     raise IngestError(f"不支持的文件类型: {suffix or '(无扩展名)'}")
 
 

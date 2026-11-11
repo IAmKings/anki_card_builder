@@ -2,7 +2,29 @@
 
 # Anki 卡组生成器
 
-> 多领域知识 Anki 卡片生成 — Android 面试 1270 张 + MQTT 协议 200 张。工具链：`python3 -m ankicards check|build|verify`。
+> 多领域知识 Anki 卡片生成 — Android 面试 1270 张 + MQTT 协议 200 张。
+> 工具链：`ingest → 可卡性预检 → plan（逐字 quote）→ compile → check → build → verify`。
+
+## 0.4.0 有什么
+
+这一版把「文档抽卡」做成了可审计的链路：机器只负责可判定的事实，判断落在 `plan.json` 上，
+再由确定性校验与编译把它变成卡片。
+
+- **plan 抽取契约**：每张卡带逐字 `quote`；`plan check` 校验引用、数字、定位、理由、覆盖率、
+  密度、跨格式一致性与剧透，`plan compile` 才写卡。agent 不再直接写 `cards/*.json`。
+- **续行与子项归并**：ingest 产出 `groups`，区间定位（`line:6-7`、`para:N-M`）成为合法来源；
+  `import --ingest` 按组出卡，不再把续行丢在答案外。
+- **PDF 跨页**：一段话被页码切断时写 `page:N-M`，卡片背面同时显示两页截图；ingest 的
+  `page_spans` 会列出疑似续页对。
+- **EPUB**：`chapter:C/p:M` 定位，支持小说/散文/随笔的 `--profile novel|essay`（长引用上限、
+  防剧透、未出卡理由枚举都随 profile 变化）。
+- **卡型**：`claim` / `style` / `phrase` / `fact` / `procedure`，每类有各自的验收标准。
+- **密度与配额**：`--density {manual,novel,essay}` 按「读过的原文字数 / 卡数」检查疏密；
+  手册口径下 `fact` + `procedure` 合并占比不足 30% 会提示。
+- **跨格式与增量**：`--also` 拿每张卡的 quote 去另一种格式里逐字重找；`--incremental` 只把新卡
+  并进已发布牌组，`retired` 显式下架，其余旧卡原样保留。
+- **可卡性预检**：`scripts/precheck.py` 先算编号点/数字句/段长，PDF 按行拆，决定走适配器还是 plan。
+- **数字等价**：`三天` 与 `3 天` 按数值比对，写法不同只提示；值不同照旧报错。
 
 ## 快速开始
 
@@ -10,7 +32,10 @@
 
 前往 [Releases](../../releases) 页面，下载最新的 `Android.apkg` 或 `MQTT.apkg`。
 
-> **从 v0.3.0/v0.3.1 升级（v0.3.2 起）**：新包的模型、guid 与牌组 id 都已变化，**不能覆盖升级**。
+> **从 v0.3.2 升级到 0.4.0**：guid、模型与牌组 id 均未变化，可直接导入覆盖更新（Anki 按 guid 更新，
+> 不会产生重复卡片）。新增的 plan/quote 只影响抽取流程，不影响已发布的卡片身份。
+>
+> **从 v0.3.0/v0.3.1 升级（v0.3.2 起）**：那一版的模型、guid 与牌组 id 都已变化，**不能覆盖升级**。
 > 请先导出备份，在 Anki 中删除旧根牌组 `Android面试` 与 `MQTT协议`（含子牌组），再导入新包；
 > 直接覆盖会产生重复卡片。
 
@@ -112,6 +137,23 @@ python3 -m ankicards preview <牌组目录> --out x.html --ingest .work/ingest/x
 python3 -m ankicards verify output/xxx.apkg
 ```
 
+### Agent 一条龙（复制即用）
+
+```bash
+python3 -m ankicards ingest 手册.pdf                      # → .work/ingest/*.json
+python3 scripts/precheck.py --ingest .work/ingest/*.json   # 选路：adapter 还是 plan
+# agent 只写 plan.json：每条卡片带逐字 quote，看过的段落记 skipped
+python3 -m ankicards plan check   plan.json --ingest .work/ingest/*.json \
+        [--profile manual|novel|essay] [--density manual|novel|essay] [--also 另一种格式.json]
+python3 -m ankicards plan compile plan.json --out data/xxx --ingest .work/ingest/*.json [--with-key]
+python3 -m ankicards check data/xxx --pdf 手册.pdf --ingest .work/ingest/*.json
+python3 -m ankicards build data/xxx --pdf 手册.pdf --ingest .work/ingest/*.json --out dist/xxx.apkg
+python3 -m ankicards verify dist/xxx.apkg
+```
+
+判断标准、卡型与密度口径见 `skills/anki-card-builder/SKILL.md`；失败模式、抽样规则与
+预检阈值见 `docs/extraction-policy.md`。全部能力都在 CLI 里，没有隐藏入口；`python3 -m ankicards --version` 打印版本。
+
 退出码：
 
 | 码 | 含义 | 典型场景 |
@@ -127,7 +169,7 @@ python3 -m ankicards verify output/xxx.apkg
 ingest 会同时产出 `groups`：编号点连同紧跟的缩进子项、没说完的续行、列表项归成一组，组区间（如 `line:3-7`）是合法定位。`import ... --ingest <清单>` 让 `*-points` 适配器按组出卡，答案并入组内其余文本、`source` 写区间；不传 `--ingest` 时仍按单行切点（旧行为）。
 同时给 `--pdf`/`--docx`/`--txt`/`--html` 与 `--ingest` 时会比对 `source_sha256`；不是同一份文件直接 exit 2。URL 产物没有本地文件 sha，只做定位闸门，不再联网校验。
 
-**格式支持矩阵（v0.3.2）**（明确的能力边界，避免“看起来支持”）：
+**格式支持矩阵（v0.4.0）**（明确的能力边界，避免“看起来支持”）：
 
 | 输入 | 状态 | 说明 |
 |---|---|---|
@@ -137,6 +179,8 @@ ingest 会同时产出 `groups`：编号点连同紧跟的缩进子项、没说�
 | DOCX | ✅ `ingest` + `import --adapter docx-points [--ingest]` | 逐段落/表格行文本 + `para:N`/`table:T/rR` 定位；忽略页眉页脚/图片/批注；不读取 Word 自动编号（`numPr`）；`--ingest` 按组合并续行/子项 |
 | TXT | ✅ `ingest` + `import --adapter txt-points [--ingest]` | 物理行 `line:N`；标题 `# 标题` 或 `一、标题`，编号点 `1. **关键词**：解释`；默认 UTF-8（含 BOM），旧文件用 `--encoding gb18030`；`--ingest` 按组合并续行/子项 |
 | Web（URL / 本地 HTML） | ✅ `ingest` + `import --adapter web-points [--ingest]` | 仅静态 HTML；提取标题/段落/列表项/表格行，`block:N` 定位；不执行 JS、不登录、不下载图片；URL 自动出卡用 manifest 两步；`--ingest` 把列表子项并进同组答案 |
+| EPUB | ✅ `ingest` + `plan` | 按 OPF spine 顺序，`chapter:C/p:M` 定位；只收 XHTML/HTML，图片型/漫画无文本直接拒绝（不做 OCR）；支持 `--profile novel\|essay` |
+| MOBI / AZW | ❌ 先转换 | 无 ingest 路径；用 Calibre `ebook-convert` 转成 EPUB 后再走上面这条（转换不进仓库） |
 | 扫描版 PDF | ❌ 明确拒绝 | 无文本层；本工具不含 OCR；空页 ≥50% 时 ingest 直接拒绝 |
 | 可修复的损坏 PDF | ⚠️ 默认拒绝 | `--allow-repaired` 显式放行；文本可能缺失 |
 
@@ -242,6 +286,7 @@ error。中文人名不猜，要精确检查就声明实体。
 |---|---|---|
 | `data/Android/` | 公开面试题库（MD） | ✅ 可入库，供他人复现构建 |
 | `data/MQTT/` | 公开 MQTT 知识点（MD） | ✅ 可入库，供他人复现构建 |
+| `data/员工手册/`、`data/一千七百種靠近/` | 公司内部手册 / 版权书（私人语料） | ❌ 已进 `.gitignore`；只在本机使用，不入库、不上传 |
 | `.work/ingest/` | PDF 逐页 / DOCX 逐段 / TXT 逐行 / Web 逐块文本产物 | ❌ 被 gitignore；含全文，不得入库 |
 | `output/*.apkg` | 构建产物 | 视内容而定；含内部页截图的不要入库 |
 
@@ -299,12 +344,17 @@ python3 -m ankicards check  /tmp/web-deck --ingest .work/ingest/example_com-arti
 │   ├── build.py             #   打包（模型、媒体、lite）
 │   ├── verify.py            #   导出后结构审计
 │   ├── preview.py           #   单文件 HTML 预览
-│   ├── ingest.py            #   PDF/DOCX/TXT/HTML/URL → 可寻址文本清单
+│   ├── ingest.py            #   PDF/DOCX/TXT/HTML/URL/EPUB → 可寻址文本清单（含 groups）
+│   ├── epub.py              #   EPUB：OPF spine 顺序 + chapter:C/p:M 定位
+│   ├── grouping.py          #   续行/子项归并成可整段取用的组
+│   ├── precheck.py          #   可卡性预检（行级结构指标 + 页级版面指标）
+│   ├── quality.py           #   确定性质量规则 Q1–Q9（答案过短/截断/交叉引用…）
+│   ├── plan.py              #   plan.json 契约：E1–E8 校验、密度、跨格式、剧透、增量
 │   ├── docx.py / txt.py / web.py  # 共享的段落/行/HTML 块提取
 │   ├── adapters.py          #   MD/DOCX/TXT/Web → 卡片数据（android-md / mqtt-md / docx-points / txt-points / web-points）
-│   └── cli.py               #   check / build / verify / preview / import / ingest
+│   └── cli.py               #   ingest / import / plan / check / build / verify / preview
 ├── skills/anki-card-builder/# 流程与判断（agent skill）
-├── scripts/                 # 可复现构建与 apkg 身份比对（发布 P0）
+├── scripts/                 # precheck.py（可卡性预检）、可复现构建与 apkg 身份比对（发布 P0）
 ├── tests/                   # 数据契约、发布契约与身份回归测试
 ├── src/                     # 解析器与处理逻辑（供适配器复用）
 ├── data/Android/            # 公开题库（MD）
@@ -322,7 +372,7 @@ python3 -m ankicards check  /tmp/web-deck --ingest .work/ingest/example_com-arti
 - **需要真实相机/PDF 才能复现的牌组**：同时加一份合成 fixture，否则 CI 无法回归。
 - **新格式**：写一个适配器（`@register`）产出 `DeckData`，禁止再新增一个独立生成脚本。
 
-### 发布与可复现构建（v0.3.2）
+### 发布与可复现构建（v0.4.0）
 
 发布物不再直接上传仓库里某个历史时点的 `output/*.apkg`，而是由 tag 指向的源码重建：
 
@@ -338,6 +388,7 @@ python3 scripts/apkg_identity.py old.apkg new.apkg
 - `.github/workflows/release.yml` 在 `v*` tag 上执行 `import → build → verify → --check-golden`，只上传 `dist/Android.apkg`、`dist/MQTT.apkg`。
 - `.github/workflows/verify.yml` 的 `public-decks` job 在每次 push/PR 重建并校验同一份 golden。
 - v0.3.2 的 P0 证据（旧包与 HEAD 重建的 0/1270、0/200 对比）见 [`docs/evidence/v0.3.2-release-identity.md`](docs/evidence/v0.3.2-release-identity.md)。
+- 0.4.0 的变更清单与验证记录见 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ### CI/CD
 

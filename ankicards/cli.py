@@ -18,6 +18,7 @@ import sys
 import zipfile
 from pathlib import Path
 
+from . import __version__
 from .build import build
 from .errors import CardError, GateError
 from .ingest import (DEFAULT_MAX_BLOCKS, DEFAULT_MAX_LINES, DEFAULT_MAX_PAGES,
@@ -436,6 +437,8 @@ def cmd_verify(args) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ankicards", description="Anki 卡组构建与校验工具")
+    parser.add_argument("--version", action="version",
+                        version=f"ankicards {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_check = sub.add_parser("check", help="只校验卡片数据（不需要 genanki）")
@@ -481,7 +484,7 @@ def main(argv: list[str] | None = None) -> int:
     p_plan = sub.add_parser("plan", help="校验/编译/对比 plan.json（每张卡都要有原文引用）")
     plan_sub = p_plan.add_subparsers(dest="plan_command", required=True)
 
-    p_plan_check = plan_sub.add_parser("check", help="校验引用锚定、理由枚举与覆盖率")
+    p_plan_check = plan_sub.add_parser("check", help="校验引用、数字、理由、覆盖率、密度、跨格式与剧透")
     p_plan_check.add_argument("plan", help="plan.json 路径")
     p_plan_check.add_argument("--ingest", required=True, help="ingest 产物 JSON")
     p_plan_check.add_argument("--profile", choices=["manual", "novel", "essay"], default=None,
@@ -515,8 +518,8 @@ def main(argv: list[str] | None = None) -> int:
     p_plan_diff.add_argument("--deck", required=True, help="已写出的牌组目录")
     p_plan_diff.set_defaults(func=cmd_plan_diff)
 
-    p_ingest = sub.add_parser("ingest", help="把 PDF/DOCX/TXT 摄取成可寻址的文本 JSON")
-    p_ingest.add_argument("source", help="PDF/DOCX/TXT 文件（MD 请用 import --adapter）")
+    p_ingest = sub.add_parser("ingest", help="把 PDF/DOCX/TXT/EPUB/HTML 摄取成可寻址的文本 JSON")
+    p_ingest.add_argument("source", help="PDF/DOCX/TXT/EPUB/HTML/URL（MD 请用 import --adapter）")
     p_ingest.add_argument("--out", help="输出 JSON；默认 .work/ingest/<名字>-<sha8>.json")
     p_ingest.add_argument("--max-pages", type=int, default=DEFAULT_MAX_PAGES,
                           help=f"PDF 页数上限（默认 {DEFAULT_MAX_PAGES}）")

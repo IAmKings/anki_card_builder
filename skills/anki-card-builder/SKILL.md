@@ -1,6 +1,6 @@
 ---
 name: anki-card-builder
-description: 从文本型 PDF、DOCX、TXT、静态 HTML 或结构化 Markdown 题库构建并校验可直接导入 Anki 的 .apkg 卡组。当用户要求把学习资料/网页做成 Anki 卡片/卡组、重打包已有卡组，或排查 .apkg 导入/重复卡问题时使用；不适用于扫描件 OCR、需要登录/JS 渲染的网页，或非“标题+编号点”结构的任意文本自动抽卡。
+description: 把文本型 PDF、DOCX、TXT、EPUB、静态 HTML 或结构化 Markdown 学习资料做成可导入 Anki 的 .apkg：ingest → 可卡性预检 → plan 抽取（每卡逐字 quote 校验）→ check → build → verify。当用户要求做卡组、把书/手册/讲义/小说做成本地 Anki 卡、重打包或增量更新已有卡组、排查 .apkg 导入/重复卡/溯源问题时使用；不适用于扫描件 OCR、需要登录或 JS 渲染的网页，也不承诺把任意散文零判断地自动抽成卡。
 ---
 
 # Anki 卡组构建
@@ -161,6 +161,20 @@ PDF/DOCX/TXT/Web/MD 只是入口不同，最后都汇入同一个 `DeckSpec` 和
 
 **完成标准**：能明确说出输入类型、源文件路径/URL、目标 deck 目录、是否需要 `--pdf`/`--docx`/`--txt`/`--html`/`--ingest`，以及**这次要背来干什么、用什么算通过、允许哪些卡型**。四项里缺「用途」时不要开工。
 
+### 1.5 可卡性预检（10 秒，决定走哪条路）
+
+```bash
+python3 scripts/precheck.py --ingest .work/ingest/xxx.json [--json]
+```
+
+PDF 会先按行拆再算，否则一页上千字会把比例稀释成「编号点 0%」。
+
+- 编号点 ≥30% 才考虑 `*-points`；PDF 还要先核对折行会不会切断「一问一答」，不成立就走 plan。
+- 数字句 <3% → 不出 `fact`；>30% → `fact` 可为主力。
+- 单页 >300 字的占比高 → 长引用会跨页，优先 EPUB 或用 `page:N-M`。
+
+指标只用于选路，不进 `plan check`；和人工判断冲突时以人工判断为准，但要说明理由。
+
 ### 2. 产出可寻址文本或结构化卡片
 
 - PDF：`python3 -m ankicards ingest <手册.pdf>`；默认写 `.work/ingest/<名字>-<sha8>.json`。清单里的 `page_spans` 列出「上一页没以句末标点收尾」的相邻页对，即疑似跨页续写的位置。
@@ -221,14 +235,18 @@ python3 -m ankicards verify output/xxx.apkg
 
 ## 命令参考
 
+全部能力都在 CLI 里，没有隐藏入口；`python3 -m ankicards <命令> --help` 是参数唯一真值。
+agent 的标准链路：`precheck → plan check → plan compile → check → build → verify`。
+`python3 -m ankicards --version` 打印版本号（0.4.0）。
+
 | 命令 | 用途 | 备注 |
 |---|---|---|
 | `python3 -m ankicards ingest <pdf|docx|txt|html|url>` | 生成逐页/逐段/逐行/逐块文本清单 | PDF 仅文本型；DOCX 上限 20 MB / 解压后 200 MB / 5000 块；TXT 上限 10 MB / 50000 行；Web 5 MB / 5000 块 / 20 秒 / 5 次 redirect，静态 HTML |
 | `python3 -m ankicards import --list` | 列出适配器 | 当前：`android-md`、`mqtt-md`、`docx-points`、`txt-points`、`web-points` |
 | `python3 -m ankicards import <src> --adapter <name> --out <deck>` | 源格式 → cards JSON | 已有卡片时需 `--force` 才覆盖；同时写 `import-report.json`（未出卡理由 + 内容规则命中）；`--strict` 让 error 级内容问题直接失败且不写牌组；`--ingest` 按 ingest 的分组合并续行/子项，并校验源文件 sha256 |
 | `python3 scripts/precheck.py --ingest <清单>` | 可卡性预检：编号点/数字句/段长/引号/表格行 | PDF 先按行拆再算（按页算会把比例稀释成 0%）；只给选路建议，不改仓库 |
-| `python3 -m ankicards plan check <plan.json> --ingest <清单> [--also <另一格式清单>]` | 校验引用锚定/理由枚举/覆盖率/密度/跨格式一致性 | 每条卡必须有 `quote`；数字按数值比对（「三天」=「3 天」），写法不同只提示；同一定位可以出多张卡，但 `quote` 不得重叠；`--min-coverage` 设分组覆盖率下限；`--density` 只提示密度与卡型配额（不拦编译）；`--also` 拿 quote 去另一种格式里重找，验证内容一致 |
-| `python3 -m ankicards plan compile <plan.json> --out <deck> --ingest <清单> [--incremental]` | 校验通过才写牌组 | 有 error 不写盘；同时写 `import-report.json`（未出卡理由 + 内容规则）；`--with-key` 生成稳定身份；`--incremental` 并进已有牌组（按 key 替换、按 `retired` 下架、其余保留） |
+| `python3 -m ankicards plan check <plan.json> --ingest <清单> [--also <另一格式清单>] [--profile manual\|novel\|essay] [--density manual\|novel\|essay]` | 校验引用锚定/理由枚举/覆盖率/密度/跨格式一致性/剧透 | 每条卡必须有 `quote`；数字按数值比对（「三天」=「3 天」），写法不同只提示；同一定位可以出多张卡，但 `quote` 不得重叠；`--min-coverage` 设分组覆盖率下限；`--density` 只提示密度与卡型配额（不拦编译）；`--also` 拿 quote 去另一种格式里重找，验证内容一致 |
+| `python3 -m ankicards plan compile <plan.json> --out <deck> --ingest <清单> [--profile ...] [--density ...] [--with-key] [--incremental]` | 校验通过才写牌组 | 有 error 不写盘；同时写 `import-report.json`（未出卡理由 + 内容规则）；`--with-key` 生成稳定身份；`--incremental` 并进已有牌组（按 key 替换、按 `retired` 下架、其余保留） |
 | `python3 -m ankicards plan diff <plan.json> --deck <deck>` | 对比 plan 与现有牌组 | 按归一后的卡面文本比对，报告新增/删除/改动；退出码恒为 0 |
 | `python3 -m ankicards check <deck>` | 数据契约校验 | 加 `--pdf` 查页码/裁图；加 `--ingest` 开溯源闸门；`--txt`/`--docx`/`--html` 做同源校验 |
 | `python3 -m ankicards build <deck> --out x.apkg` | 构建 apkg | 有图片题必须 `--pdf`；引用 pages/docx/txt/web 定位必须 `--ingest` |
@@ -247,10 +265,11 @@ python3 -m ankicards verify output/xxx.apkg
 
 ```
 <deck>/
-  import-report.json  # import 生成：卡片数 / 未出卡理由 / 内容规则命中（不参与构建）
+  import-report.json  # import/plan compile 生成：卡片数 / 未出卡理由 / 内容规则命中（不参与构建）
   deck.json        # 可选：{"name": "顶层牌组名", "source_kind": "pdf"}
   cards/*.json     # 必需：{"deck": "子牌组名", "cards": [...]}
   crops.json       # 可选：图片题的 page + rect
+  plan.json        # 可选：抽取中间产物（逐字 quote + 未出卡理由）；load_spec 不读它
 ```
 
 字段定义以 `ankicards/schema.py` 为唯一真值；这里不复制字段表，避免文档与代码漂移。新增字段先改代码与测试，再写文档。
