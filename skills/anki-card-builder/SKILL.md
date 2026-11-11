@@ -63,16 +63,21 @@ PDF/DOCX/TXT/Web/MD 只是入口不同，最后都汇入同一个 `DeckSpec` 和
 
 拿到答案后查这张表，把「用途、卡型组合、密度带、验收方式」写进交付说明：
 
-| 形态 + 用途 | 可用卡型 | 密度带（字/张） | 验收方式 | 必须拒绝或改写的情况 |
-|---|---|---|---|---|
-| 手册 / 考试背诵 | `fact` `claim` | 300–500 | 答对率 | 找不到可检验事实时明说，不要用观点卡冒充考点 |
-| 手册 / 工作查用 | `fact` `procedure` | 200–400 | 能不能照做 | 步骤跨页的要用 `page:N-M` 合并区间 |
-| 讲义 / 写作模仿 | `style` `claim` | 800–1,200 | 照着这个写法造一句 | 没有手法样本就记 `style_note`，不要硬凑 |
-| 散文随笔 / 鉴赏复述 | `claim` `phrase` `style` | 800–1,200 | 复述出差异点 | **不出 `fact`**：这类文本没有可检验的事实 |
-| 小说 / 情节复习 | `fact` `claim` | 500–800 | 按阅读顺序回忆 | 卡面不得出现本 locator 之后才登场的角色或结局 |
-| 小说 / 人物分析 | `claim` `style` | 600–1,000 | 能否给出证据句 | 剧透是允许的，但要在交付说明里标明 |
-| 散文 / 「知识点归纳」 | — | — | — | **前置拒绝**：见下方「硬要抽知识点」 |
-| 结构化题库 / 考试 | `fact` | 50–200 | 答对率 | 表头行不当数据（Q7） |
+| 形态 + 用途 | 可用卡型 | `--density` 档 | 建议密度（字/张） | 验收方式 | 必须拒绝或改写的情况 |
+|---|---|---|---|---|---|
+| 手册 / 考试背诵 | `fact` `claim` | `manual` | 300–500 | 答对率 | 找不到可检验事实时明说，不要用观点卡冒充考点 |
+| 手册 / 工作查用 | `fact` `procedure` | `manual` | 200–400 | 能不能照做 | 步骤跨页的要用 `page:N-M` 合并区间 |
+| 讲义 / 写作模仿 | `style` `claim` | `essay` | 800–1,200 | 照着这个写法造一句 | 没有手法样本就记 `style_note`，不要硬凑 |
+| 散文随笔 / 鉴赏复述 | `claim` `phrase` `style` | `essay` | 800–1,200 | 复述出差异点 | **不出 `fact`**：这类文本没有可检验的事实 |
+| 小说 / 情节复习 | `fact` `claim` | `novel` | 500–800 | 按阅读顺序回忆 | 卡面不得出现本 locator 之后才登场的角色或结局 |
+| 小说 / 人物分析 | `claim` `style` | `novel` | 600–1,000 | 能否给出证据句 | 剧透是允许的，但要在交付说明里标明 |
+| 散文 / 「知识点归纳」 | — | — | — | — | **前置拒绝**：见下方「硬要抽知识点」 |
+| 结构化题库 / 考试 | `fact` | `manual` | 50–200 | 答对率 | 表头行不当数据（Q7） |
+
+表里的「建议密度」是**用途级**建议，必须落在所选 `--density` 档的区间内，否则 `plan check`
+会提示太密或太疏：`manual` 200–700、`novel` 400–1200、`essay` 600–1600（数字只以代码
+`DENSITY_BANDS` 为准，这里不重复维护）。题库型会低于 `manual` 的 200 下限，`plan check`
+报「太密」属预期——题库本来就是一条信息点一张卡，按题库口径忽略这条提示。
 
 四条停问红线（命中任意一条，停下来找用户确认，不要自己拍板）：
 
@@ -94,7 +99,7 @@ PDF/DOCX/TXT/Web/MD 只是入口不同，最后都汇入同一个 `DeckSpec` 和
 - 知识点要能互相连接成体系；散文是**一篇一境**，章与章之间没有依赖。
 - 现成的数字校验（E2）只对 `fact` 有效；观点卡没有数字可查，规则形同虚设。
 
-正确处理是**换口径**，不是换提示词：说明「这类文本能出的是观点、写法、金句，密度约 800–1,200 字/张，验收是能否复述出差异点」，再问用户是否接受；不接受就换资料，不要产出一批看起来像知识点的观点卡。
+正确处理是**换口径**，不是换提示词：说明「这类文本能出的是观点、写法、金句，密度约 800–1,200 字/张（落在 `--density essay` 的 600–1600 档内），验收是能否复述出差异点」，再问用户是否接受；不接受就换资料，不要产出一批看起来像知识点的观点卡。
 
 ## 前置条件
 
@@ -219,7 +224,7 @@ python3 -m ankicards verify output/xxx.apkg
 | `python3 -m ankicards ingest <pdf|docx|txt|html|url>` | 生成逐页/逐段/逐行/逐块文本清单 | PDF 仅文本型；DOCX 上限 20 MB / 解压后 200 MB / 5000 块；TXT 上限 10 MB / 50000 行；Web 5 MB / 5000 块 / 20 秒 / 5 次 redirect，静态 HTML |
 | `python3 -m ankicards import --list` | 列出适配器 | 当前：`android-md`、`mqtt-md`、`docx-points`、`txt-points`、`web-points` |
 | `python3 -m ankicards import <src> --adapter <name> --out <deck>` | 源格式 → cards JSON | 已有卡片时需 `--force` 才覆盖；同时写 `import-report.json`（未出卡理由 + 内容规则命中）；`--strict` 让 error 级内容问题直接失败且不写牌组；`--ingest` 按 ingest 的分组合并续行/子项，并校验源文件 sha256 |
-| `python3 -m ankicards plan check <plan.json> --ingest <清单> [--also <另一格式清单>]` | 校验引用锚定/理由枚举/覆盖率/密度/跨格式一致性 | 每条卡必须有 `quote`；数字必须能在 `quote` 找到；条目区间不得相交；`--min-coverage` 设分组覆盖率下限；`--density` 只提示密度与卡型配额（不拦编译）；`--also` 拿 quote 去另一种格式里重找，验证内容一致 |
+| `python3 -m ankicards plan check <plan.json> --ingest <清单> [--also <另一格式清单>]` | 校验引用锚定/理由枚举/覆盖率/密度/跨格式一致性 | 每条卡必须有 `quote`；数字必须能在 `quote` 找到；同一定位可以出多张卡，但 `quote` 不得重叠；`--min-coverage` 设分组覆盖率下限；`--density` 只提示密度与卡型配额（不拦编译）；`--also` 拿 quote 去另一种格式里重找，验证内容一致 |
 | `python3 -m ankicards plan compile <plan.json> --out <deck> --ingest <清单> [--incremental]` | 校验通过才写牌组 | 有 error 不写盘；同时写 `import-report.json`（未出卡理由 + 内容规则）；`--with-key` 生成稳定身份；`--incremental` 并进已有牌组（按 key 替换、按 `retired` 下架、其余保留） |
 | `python3 -m ankicards plan diff <plan.json> --deck <deck>` | 对比 plan 与现有牌组 | 按归一后的卡面文本比对，报告新增/删除/改动；退出码恒为 0 |
 | `python3 -m ankicards check <deck>` | 数据契约校验 | 加 `--pdf` 查页码/裁图；加 `--ingest` 开溯源闸门；`--txt`/`--docx`/`--html` 做同源校验 |

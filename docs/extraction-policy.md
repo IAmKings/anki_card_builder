@@ -113,7 +113,7 @@ plan（读过之后的判断，`ankicards/plan.py` 的 `PLAN_SKIP_REASONS`，在
 已落地：
 
 - **P1**：`ankicards/quality.py` 的 Q1–Q9 确定性规则（默认只报告，不阻断）；`import` 写 `import-report.json`，含 `skipped`（未出卡理由）与 `findings`（规则命中）；`import --strict` 让 error 级问题直接失败且不写牌组。
-- **P3**：`plan.json` 契约落地（`ankicards/plan.py`）。每张卡必须带逐字 `quote`，校验规则 E1–E7：quote 是定位文本的逐字子串（空白归一）、答案里的数字必须出现在 quote 里（问题里的数字只提示）、quote 长度 8–300、定位存在且非空、未出卡理由属于枚举、任意两条目区间不得相交、分组覆盖率可选下限（`--min-coverage`）；另有「卡面出现原文没有的 ASCII 专名」warning。`plan check` 只读；`plan compile` 校验通过才写牌组并复用 `write_deck`（含 `import-report.json`）；`plan diff` 对比 plan 与现有牌组会新增/删除/改动哪些卡（按归一后的卡面文本比对）。`quote` 不进卡片字段，只留在 plan 里作为审计记录。
+- **P3**：`plan.json` 契约落地（`ankicards/plan.py`）。每张卡必须带逐字 `quote`，校验规则 E1–E7：quote 是定位文本的逐字子串（空白归一）、答案里的数字必须出现在 quote 里（问题里的数字只提示）、quote 长度 8–300、定位存在且非空、未出卡理由属于枚举、任意两条目区间不得相交（**P3 当时如此；E5 后来放宽为「同一定位只要 quote 不重叠即可多卡」**）、分组覆盖率可选下限（`--min-coverage`）；另有「卡面出现原文没有的 ASCII 专名」warning。`plan check` 只读；`plan compile` 校验通过才写牌组并复用 `write_deck`（含 `import-report.json`）；`plan diff` 对比 plan 与现有牌组会新增/删除/改动哪些卡（按归一后的卡面文本比对）。`quote` 不进卡片字段，只留在 plan 里作为审计记录。
 - **P4**：可选卡身份 `key`（12 位小写十六进制，`plan compile --with-key` 生成，只用于新牌组）。有 key 的卡按 `(key)` 定 guid：改措辞不会在 Anki 里变成新卡；同一页/同一段内新增卡会改变后续 `seq`，从而改变 key（这是显式代价）。
 - **P6**：EPUB ingest（`chapter:C/p:M`，章节顺序取自 OPF spine，每个 `<p>` 独立成组）+ `plan --profile novel`（quote 上限 800 字、未出卡理由追加 `plot_summary`/`spoiler`/`character_note`）与 `--profile essay`（散文/随笔：quote 上限 800 字、理由追加 `anecdote`/`style_note`/`background`）。两者都仍按“逐段引用 + 人抽样”验收，不做情节或主旨归纳。
 - **P2**：`ingest` 产出 `groups`（编号点 + 缩进子项 + 没说完的续行归成一组），并把组区间（如 `line:3-7`）注册为合法定位；`import --ingest <清单>` 让 `txt-points`/`docx-points`/`web-points` 按组取点，答案并入组内其余文本，`source` 写区间；`schema.parse_locator` 校验区间次序（起点不得大于终点），闸门要求整个区间出现在 ingest 产物里。不加 `--ingest` 时行为与 P1 完全一致。
@@ -139,7 +139,8 @@ plan（读过之后的判断，`ankicards/plan.py` 的 `PLAN_SKIP_REASONS`，在
 - **quote 必须带源文本的 Markdown 标记**：`**加粗**`、`> 引用`、代码围栏都在行文本里，从渲染视图复制必然 E1 报错。工作流上必须从 ingest 文本取引用；是否给 Markdown 输入做「去行内标记的文本层」尚未决定。
 - **区间定位只能引用单元或 ingest 已合并的组**：`line:1447-1454` 这种跨行区间会报「定位不在 ingest 产物中」。排版图/代码围栏的每一行各自成组，想整段引用做一张卡做不到，只能逐行出卡或改分组规则。
 - **覆盖率在案例型讲义上不可用**：575 组只覆盖 13 组（2%）；`--min-coverage 0.5` 直接失败。这类文档「看过」不等于「每组都该出卡」，覆盖率更适合规整文档，或按章节/主题统计。
-- **同一段只能出一张卡**（E5 区间不得相交）：一段话同时能问「是什么」和「什么时候用」时，只能合并成一问或换定位。
+- ~~**同一段只能出一张卡**~~：**已解决**。E5 早期要求条目区间不相交；现在同一定位只要 `quote`
+  不重叠就可以出多张卡，「是什么」和「什么时候用」可以各占一句、互不覆盖。
 - **数字校验只比 digits**：`800ms` 写成 `0.8 秒` 会被拦（0.8 不在 quote），但写成「八百毫秒」或漏掉单位不会被拦；中文数字不在校验范围内。
 - 空白归一工作正常：手打箱线图行、与原文空格数不同，仍通过 E1。
 
