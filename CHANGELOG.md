@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.4.2（2026-11-11）
+
+把「模型写干扰项」接进派生链路：素材包交给外部模型，候选只并入 plan，再走确定性校验与人审。
+工具本身仍不调用模型；公开牌组（Android / MQTT）身份不变。
+
+### 新增
+
+- **`derive packet`**：导出源卡的 `q / answer / correct / correct_chars`，附
+  `candidates_format` 与提示词要求（长度与正确项相差 ≤50%），工具不联网、不调用模型。
+- **`derive merge`**：读 `{"items":[{source_key,distractors}]}`，逐条过闸（2–60 字、
+  不与正确项/已有选项重复或高度相似、每题最多 2 条、选项总数 ≤5）；通过的标
+  `origin: "model"`，并给卡片打 `review: true`。
+  - `--replace-same-deck`：选项已满时替换长度最不匹配的同牌组项，不碰正确项。
+  - `--prefer-model`：候选一到就替换同牌组项，配合 `--options 3` 得到「1 正确 + 2 模型」。
+- **选项长度提示**：`derive check` 发现最长/最短比 >2 时警告「长度可能泄漏答案」。
+- **`docs/derive-packet.md`**：素材包结构、候选格式、模型提示词模板、人审清单。
+
+### 变更
+
+- `derive check` 的 stats 增加 `review` 计数；`derive report` 与 CLI 输出同步展示。
+
+### 验证
+
+- 413 tests OK（1 skipped），golden 通过（Android 1270 / MQTT 200）。
+- 真实牌组：Android 10 题 × 2 条模型候选，`--prefer-model` 后替换 20 条同牌组项、
+  每题 3 个选项（1 正确 + 2 模型）、同牌组残留 0；长度比提示从 338 张降到 195 张。
+- 完整派生链：plan → merge → check --allow-model → compile → build → verify 通过。
+
+## 0.4.1（2026-11-11）
 ## 0.4.1（2026-11-11）
 
 在第一轮抽取出的牌组之上做**派生题**：读现有卡片的问题与答案，生成填空题与选择题。
