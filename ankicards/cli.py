@@ -311,6 +311,106 @@ def cmd_plan_diff(args) -> int:
     return 0
 
 
+def _print_derive_report(report, stats: dict) -> None:
+    for message in report.errors:
+        print(f"  ✗ {message}")
+    for message in report.warnings:
+        print(f"  △ {message}")
+    origins = " / ".join(f"{k} {v}" for k, v in sorted(stats.get("origins", {}).items())) or "无"
+    positions = " / ".join(f"{k} {v}" for k, v in sorted(stats.get("answer_positions", {}).items())) or "-"
+    print(f"填空 {stats.get('cloze', 0)} / 选择 {stats.get('choice', 0)}"
+          f" / 干扰项 {origins} / 正确项位置 {positions}")
+    print("派生检查通过" if report.ok else "派生检查未通过")
+
+
+def cmd_derive_plan(args) -> int:
+    from .derive import DeriveOptions, build_plan, summary
+
+    spec = load_spec(Path(args.deck))
+    ingest = load_ingest(Path(args.ingest)) if args.ingest else None
+    opts = DeriveOptions(
+        options=args.options,
+        max_option_chars=args.max_option_chars,
+        cloze_max_span=args.cloze_max_span,
+        cloze_per_card=args.cloze_per_card,
+        distractor_source=args.distractor_source,
+        seed=args.seed,
+        sections=tuple(args.section or ()),
+        cloze_limit=args.cloze_limit,
+        choice_limit=args.choice_limit,
+        show_source=args.show_source,
+    )
+    plan = build_plan(spec, ingest, opts)
+    print(f"源牌组 {spec.name}：{plan['source']['cards']} 张可入库")
+    print(summary(plan))
+    if args.dry_run:
+        print("（--dry-run：没有写 plan 文件）")
+        return 0
+    out = Path(args.out)
+    out.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"写出 {out}")
+    return 0
+
+
+def cmd_derive_check(args) -> int:
+    from .derive import check_plan, load_derived_plan
+
+    plan = load_derived_plan(args.plan)
+    spec = load_spec(Path(args.deck))
+    ingest = load_ingest(Path(args.ingest)) if args.ingest else None
+    report, stats = check_plan(plan, spec, ingest, allow_model=args.allow_model)
+    _print_derive_report(report, stats)
+    return 0 if report.ok else 1
+
+
+def cmd_derive_compile(args) -> int:
+    from .derive import check_plan, compile_plan, load_derived_plan, summary
+
+    plan = load_derived_plan(args.plan)
+    spec = load_spec(Path(args.deck))
+    ingest = load_ingest(Path(args.ingest)) if args.ingest else None
+    report, stats = check_plan(plan, spec, ingest, allow_model=args.allow_model)
+    _print_derive_report(report, stats)
+    if not report.ok:
+        print("编译中止：先修派生 plan")
+        return 1
+    out = compile_plan(plan, spec, args.out, allow_model=args.allow_model, force=args.force)
+    print(f"写出 {out}（{summary(plan)}）")
+    return 0
+
+
+def cmd_derive_report(args) -> int:
+    from .derive import _options_of, load_derived_plan
+
+    plan = load_derived_plan(args.plan)
+    cards = plan.get("cards") or []
+    for i, entry in enumerate(cards):
+        kind = entry.get("type")
+        source = str(entry.get("source_key", ""))
+        if kind == "cloze":
+            text = str(entry.get("text", "")).replace("\n", " ")
+            print(f"{i + 1:>3} [填空] {source}  {text[:90]}")
+        else:
+            options = _options_of(entry)
+            index = int(entry.get("answer_index") or 0)
+            print(f"{i + 1:>3} [选择] {source}  {entry.get('stem', '')[:60]}"
+                  f"（{len(options)} 项，正确 {index + 1}）")
+    skipped = plan.get("skipped") or []
+    print(f"共 {len(cards)} 张；未出卡 {len(skipped)} 条")
+    return 0
+
+
+def cmd_derive_packet(args) -> int:
+    from .derive import build_packet
+
+    spec = load_spec(Path(args.deck))
+    packet = build_packet(spec, limit=args.limit, sections=tuple(args.section or ()))
+    out = Path(args.out)
+    out.write_text(json.dumps(packet, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"写出 {out}（{packet['count']} 张源卡；本命令不调用模型）")
+    return 0
+
+
 def cmd_build(args) -> int:
     spec, report, ingest = _validated(args)
     _print_report(report)
@@ -517,6 +617,61 @@ def main(argv: list[str] | None = None) -> int:
     p_plan_diff.add_argument("plan", help="plan.json 路径")
     p_plan_diff.add_argument("--deck", required=True, help="已写出的牌组目录")
     p_plan_diff.set_defaults(func=cmd_plan_diff)
+
+    p_derive = sub.add_parser("derive", help="从已发布的牌组派生填空题与选择题（先出 plan 供审）")
+    derive_sub = p_derive.add_subparsers(dest="derive_command", required=True)
+
+    p_derive_plan = derive_sub.add_parser("plan", help="按规则生成派生 plan（不调用模型）")
+    p_derive_plan.add_argument("--deck", required=True, help="已写出的源牌组目录")
+    p_derive_plan.add_argument("--ingest", help="源文件 ingest 产物（用于本地干扰项与来源校验）")
+    p_derive_plan.add_argument("--out", default="plan_derive.json", help="输出 plan 路径")
+    p_derive_plan.add_argument("--options", type=int, default=4, help="选择题选项数（3–5，默认 4）")
+    p_derive_plan.add_argument("--max-option-chars", type=int, default=60,
+                               help="单个选项/正确片段的字数上限（默认 60）")
+    p_derive_plan.add_argument("--cloze-max-span", type=int, default=20,
+                               help="挖空片段字数上限（默认 20）")
+    p_derive_plan.add_argument("--cloze-per-card", type=int, choices=[1, 2], default=1,
+                               help="每张源卡最多出几张填空（默认 1）")
+    p_derive_plan.add_argument("--distractor-source", choices=["same-deck", "local", "hybrid", "none"],
+                               default="hybrid",
+                               help="干扰项来源优先级：same-deck 同牌组 / local 本地语料 / hybrid 先同牌组再用本地语料 / none 只出填空")
+    p_derive_plan.add_argument("--seed", type=int, default=0, help="选项顺序的确定性种子（默认 0）")
+    p_derive_plan.add_argument("--section", action="append", help="只处理这些子牌组（可重复）")
+    p_derive_plan.add_argument("--cloze-limit", type=int, default=0, help="填空最多出几张（0 不限）")
+    p_derive_plan.add_argument("--choice-limit", type=int, default=0, help="选择题最多出几张（0 不限）")
+    p_derive_plan.add_argument("--show-source", choices=["short", "full", "off"], default="short",
+                               help="选择题背面附源卡问题的形式（默认截断 80 字）")
+    p_derive_plan.add_argument("--dry-run", action="store_true", help="只打印资格统计，不写文件")
+    p_derive_plan.set_defaults(func=cmd_derive_plan)
+
+    p_derive_check = derive_sub.add_parser("check", help="校验派生 plan 的锚定、选项、来源与去重")
+    p_derive_check.add_argument("plan", help="plan_derive.json 路径")
+    p_derive_check.add_argument("--deck", required=True, help="源牌组目录（必须是生成时的同一份）")
+    p_derive_check.add_argument("--ingest", help="源文件 ingest 产物（给了就查本地干扰项定位）")
+    p_derive_check.add_argument("--allow-model", action="store_true",
+                                help="允许含模型写的干扰项（origin=model）")
+    p_derive_check.set_defaults(func=cmd_derive_check)
+
+    p_derive_compile = derive_sub.add_parser("compile", help="校验通过后写出独立派生牌组")
+    p_derive_compile.add_argument("plan", help="plan_derive.json 路径")
+    p_derive_compile.add_argument("--deck", required=True, help="源牌组目录（只读）")
+    p_derive_compile.add_argument("--out", required=True, help="输出目录（必须是新目录或加 --force）")
+    p_derive_compile.add_argument("--ingest", help="源文件 ingest 产物")
+    p_derive_compile.add_argument("--allow-model", action="store_true",
+                                  help="允许含模型写的干扰项（编译后仍应人工审）")
+    p_derive_compile.add_argument("--force", action="store_true", help="覆盖已有输出目录")
+    p_derive_compile.set_defaults(func=cmd_derive_compile)
+
+    p_derive_report = derive_sub.add_parser("report", help="逐条打印派生 plan，供人审")
+    p_derive_report.add_argument("plan", help="plan_derive.json 路径")
+    p_derive_report.set_defaults(func=cmd_derive_report)
+
+    p_derive_packet = derive_sub.add_parser("packet", help="导出源卡素材包给外部模型挑片段（不调用模型）")
+    p_derive_packet.add_argument("--deck", required=True, help="源牌组目录")
+    p_derive_packet.add_argument("--out", default="derive-packet.json", help="输出 JSON 路径")
+    p_derive_packet.add_argument("--limit", type=int, default=0, help="最多导出多少张（0 不限）")
+    p_derive_packet.add_argument("--section", action="append", help="只导出这些子牌组（可重复）")
+    p_derive_packet.set_defaults(func=cmd_derive_packet)
 
     p_ingest = sub.add_parser("ingest", help="把 PDF/DOCX/TXT/EPUB/HTML 摄取成可寻址的文本 JSON")
     p_ingest.add_argument("source", help="PDF/DOCX/TXT/EPUB/HTML/URL（MD 请用 import --adapter）")

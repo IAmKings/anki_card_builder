@@ -124,6 +124,9 @@ python3 scripts/precheck.py --ingest .work/ingest/xxx.json [--json]
 python3 -m ankicards plan check   plan.json --ingest .work/ingest/xxx.json --min-coverage 0.9 [--profile novel|essay] [--density essay] [--also 另一格式.json]
 python3 -m ankicards plan compile plan.json --out <牌组目录> --ingest .work/ingest/xxx.json [--with-key] [--profile novel|essay] [--density essay] [--incremental]
 python3 -m ankicards plan diff    plan.json --deck <牌组目录>
+python3 -m ankicards derive plan    --deck <牌组目录> --out plan_derive.json [--ingest <清单>] [--options 4] [--dry-run]
+python3 -m ankicards derive check   plan_derive.json --deck <牌组目录>
+python3 -m ankicards derive compile plan_derive.json --deck <牌组目录> --out dist/<牌组>-派生
 
 # 3) 校验卡片数据；--ingest 启用溯源闸门（页码/定位必须存在且有文本）
 python3 -m ankicards check  <牌组目录> [--pdf 手册.pdf|--html page.html] [--ingest .work/ingest/xxx.json]
@@ -266,6 +269,16 @@ error。中文人名不猜，要精确检查就声明实体。
 字段定义以 `ankicards/schema.py` 为唯一真值；`skills/anki-card-builder/SKILL.md`
 记录的是流程与判断（怎么选路径、怎么裁图、怎么校对），不复制字段表。
 安装与依赖说明见 [`skills/README.md`](skills/README.md)。
+
+### 派生题：填空题与选择题
+
+从**已写好**的牌组派生第二层卡，不重读原文。源牌组只读；派生结果先落 `plan_derive.json`，`derive check` 通过后再编译到独立目录。
+
+- 填空题：从源答案里挑逐字片段（数字+单位、专名、术语，2–20 字）挖空，`source_excerpt` 必须能在源答案里逐字找到。
+- 选择题：正确项是逐字片段（≤60 字）；干扰项优先同牌组其他卡的答案片段（`same-deck`），给了 `--ingest` 才补 `local`；模型写的干扰项要标 `origin:"model"`，单题 ≤2 个，编译需 `--allow-model-distractors`，且必须人工审。
+- 参数：`--options 3–5`（默认 4）、`--max-option-chars`、`--cloze-max-span`、`--cloze-per-card 1|2`、`--distractor-source same-deck|local|hybrid|none`、`--seed` 控制选项顺序、`--cloze-limit` / `--choice-limit`。
+- 背面自动附「來源：<源卡问题>」；`--show-source full` 显示全文，`off` 关闭。
+- 工具只保证**可定位、可判分**（引用逐字、单正确项、选项不重复），不保证题目值得考；编译前用 `derive report` 抽读。
 
 定位语义（**唯一真值**）：
 - 可选 `key`：12 位小写十六进制（`plan compile --with-key` 生成）。有 key 的卡按 key 定 guid，改文字不会在 Anki 里变成新卡；只用于**新牌组**，已发布牌组不要加。
