@@ -45,11 +45,13 @@ PLAN_CARD_FIELDS = {
 #: - style：写法/结构/语气（要有足够长的样本才看得出）
 #: - phrase：金句（要能整句背下来）
 #: - fact：事实/数字（要能核对）
+#: - procedure：流程/步骤（要能照着做，知道找谁、交什么）
 CARD_KINDS = {
     "claim": "观点/判断",
     "style": "写法/结构/语气",
     "phrase": "金句",
     "fact": "事实/数字",
+    "procedure": "流程/步骤",
 }
 CARD_KIND_NAMES = tuple(CARD_KINDS)
 PHRASE_MAX_CHARS = 60
@@ -578,6 +580,13 @@ def check_plan(plan: dict, ingest: IngestData,
                 report.add_warning(
                     f"{where}.quote",
                     "事实卡的 quote 里没有数字或日期：没有可核对锚点的事实容易写错")
+            elif card_kind == "procedure" and not re.search(
+                    r"怎么|如何|怎样|哪些|需要|要|多久|谁|是否|能否|可以|什么时候|几天|步骤|流程|交什么|带什么",
+                    str(entry.get("q") or "")):
+                report.add_warning(
+                    f"{where}.q",
+                    "流程卡的问题应指向动作或对象（找谁/怎么做/要交什么/多久）："
+                    "不指向动作的问法，背下来也用不上")
             elif card_kind == "claim" and not re.search(r"[？?]\s*$", str(entry.get("q") or "")):
                 report.add_warning(
                     f"{where}.q", "观点卡的问题建议写成问句（以 ？ 结尾）")
@@ -745,12 +754,13 @@ def check_plan(plan: dict, ingest: IngestData,
                         f"散文口径下出现了 {kinds['fact']} 张 fact 卡："
                         "这类文本没有可检验的事实，应换成 claim/style/phrase")
                 if density == "manual" and total_kinds:
-                    share = kinds.get("fact", 0) / total_kinds
+                    factual = kinds.get("fact", 0) + kinds.get("procedure", 0)
+                    share = factual / total_kinds
                     if share < MANUAL_FACT_SHARE_MIN:
                         report.add_warning(
                             "density",
-                            f"手册口径下 fact 只占 {share:.0%}（建议 ≥"
-                            f"{MANUAL_FACT_SHARE_MIN:.0%}）：考点型资料应以可核对的事实为主")
+                            f"手册口径下 fact/procedure 合计只占 {share:.0%}（建议 ≥"
+                            f"{MANUAL_FACT_SHARE_MIN:.0%}）：考点型资料应以可核对的事实与流程为主")
 
     return report, stats
 

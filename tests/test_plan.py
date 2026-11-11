@@ -469,7 +469,7 @@ class DensityTest(unittest.TestCase):
 
     def test_manual_profile_requires_fact_share(self) -> None:
         report, _ = self.check(make_plan([card_g2(), card_g3()]), density="manual")
-        self.assertTrue(self.density_warnings(report, "fact 只占"))
+        self.assertTrue(self.density_warnings(report, "合计只占"))
 
     def test_min_greater_than_max_is_error(self) -> None:
         report, _ = self.check(make_plan([card_g2()]),
@@ -490,6 +490,53 @@ class DensityTest(unittest.TestCase):
                          "--density-min", "20", "--density-max", "100"])
         self.assertEqual(code, 0)
         self.assertIn("密度 25 字/张（目标 20–100）", out.getvalue())
+
+
+class ProcedureKindTest(unittest.TestCase):
+    """procedure：流程/步骤卡，验收标准与 fact 不同（不要求数字，要求指向动作）。"""
+
+    def setUp(self) -> None:
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.manifest = write_manifest(self.dir / "demo.json")
+        self.ingest = load_ingest(self.manifest)
+
+    def check(self, plan, **kwargs):
+        return check_plan(plan, self.ingest, **kwargs)
+
+    def test_procedure_kind_accepted(self) -> None:
+        report, stats = self.check(make_plan([
+            card_g2(kind="procedure", q="重试时要在请求里带上什么？",
+                    a="带上同一请求号，服务端才能识别为同一次请求。")]))
+        self.assertEqual(report.errors, [])
+        self.assertFalse([w for w in report.warnings if ".kind" in w])
+        self.assertEqual(stats["kinds"], {"procedure": 1})
+
+    def test_procedure_question_should_point_to_action(self) -> None:
+        report, _ = self.check(make_plan([
+            card_g2(kind="procedure", q="幂等是什么意思？")]))
+        self.assertEqual(report.errors, [])
+        [warning] = [w for w in report.warnings if ".q" in w]
+        self.assertIn("流程卡", warning)
+
+    def test_procedure_needs_no_number(self) -> None:
+        report, _ = self.check(make_plan([
+            card_g3(kind="procedure", q="生产环境端口要怎么改？",
+                    a="改配置后重启，默认 8080 只是监听值。")]))
+        self.assertEqual(report.errors, [])
+        self.assertEqual([w for w in report.warnings if "没有数字" in w], [])
+
+    def test_manual_share_counts_fact_and_procedure(self) -> None:
+        report, _ = self.check(make_plan([
+            card_g2(kind="procedure", q="重试时要带什么？"),
+            card_g3(kind="procedure", q="端口要怎么改？"),
+        ]), density="manual", density_min=1, density_max=999)
+        self.assertEqual([w for w in report.warnings if "合计只占" in w], [])
+
+    def test_unknown_kind_still_error(self) -> None:
+        report, _ = self.check(make_plan([card_g2(kind="workflow")]))
+        self.assertTrue(any("必须是" in e for e in report.errors))
 
 
 def write_block_manifest(path: Path, blocks: list[str]) -> Path:
