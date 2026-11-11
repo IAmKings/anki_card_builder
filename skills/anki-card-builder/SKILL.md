@@ -198,6 +198,8 @@ PDF 会先按行拆再算，否则一页上千字会把比例稀释成「编号�
   python3 -m ankicards derive plan    --deck <deck> --out plan_derive.json [--ingest <清单>] [--dry-run]
   python3 -m ankicards derive check   plan_derive.json --deck <deck>
   python3 -m ankicards derive compile plan_derive.json --deck <deck> --out dist/<deck>-派生
+  python3 -m ankicards derive packet  --deck <deck> --out packet.json --limit 50
+  python3 -m ankicards derive merge   plan_derive.json --deck <deck> --candidates candidates.json
   ```
   有 error 时 `compile` 拒绝写盘。`quote` 只留在 plan 里，不写进卡片（Anki 字段固定）。
 - 手写：卡片写进 `<deck>/cards/*.json`，一卡一问。
@@ -250,7 +252,7 @@ agent 的标准链路：`precheck → plan check → plan compile → check → 
 | `python3 scripts/precheck.py --ingest <清单>` | 可卡性预检：编号点/数字句/段长/引号/表格行 | PDF 先按行拆再算（按页算会把比例稀释成 0%）；只给选路建议，不改仓库 |
 | `python3 -m ankicards plan check <plan.json> --ingest <清单> [--also <另一格式清单>] [--profile manual\|novel\|essay] [--density manual\|novel\|essay]` | 校验引用锚定/理由枚举/覆盖率/密度/跨格式一致性/剧透 | 每条卡必须有 `quote`；数字按数值比对（「三天」=「3 天」），写法不同只提示；同一定位可以出多张卡，但 `quote` 不得重叠；`--min-coverage` 设分组覆盖率下限；`--density` 只提示密度与卡型配额（不拦编译）；`--also` 拿 quote 去另一种格式里重找，验证内容一致 |
 | `python3 -m ankicards plan compile <plan.json> --out <deck> --ingest <清单> [--profile ...] [--density ...] [--with-key] [--incremental]` | 校验通过才写牌组 | 有 error 不写盘；同时写 `import-report.json`（未出卡理由 + 内容规则）；`--with-key` 生成稳定身份；`--incremental` 并进已有牌组（按 key 替换、按 `retired` 下架、其余保留） |
-| `python3 -m ankicards derive plan/check/compile/report/packet` | 从已发布牌组派生填空题与选择题 | 源牌组只读；先出 plan 再编译；`--options 3–5`、`--distractor-source same-deck/local/hybrid/none`；模型干扰项要 `--allow-model-distractors` |
+| `python3 -m ankicards derive plan/check/compile/report/packet/merge` | 从已发布牌组派生填空题与选择题 | 源牌组只读；先出 plan 再编译；`--options 3–5`、`--distractor-source same-deck/local/hybrid/none`；模型候选走 `packet → merge → check --allow-model`，编译要 `--allow-model-distractors` |
 | `python3 -m ankicards plan diff <plan.json> --deck <deck>` | 对比 plan 与现有牌组 | 按归一后的卡面文本比对，报告新增/删除/改动；退出码恒为 0 |
 | `python3 -m ankicards check <deck>` | 数据契约校验 | 加 `--pdf` 查页码/裁图；加 `--ingest` 开溯源闸门；`--txt`/`--docx`/`--html` 做同源校验 |
 | `python3 -m ankicards build <deck> --out x.apkg` | 构建 apkg | 有图片题必须 `--pdf`；引用 pages/docx/txt/web 定位必须 `--ingest` |
@@ -303,6 +305,7 @@ agent 的标准链路：`precheck → plan check → plan compile → check → 
 - 选择题：正确项同样是逐字片段（≤60 字）；干扰项优先同牌组其他卡的答案片段（`same-deck`），给了 `--ingest` 才会补 `local`；模型另写（`origin:"model"`）单题最多 2 个，编译必须 `--allow-model-distractors`。
 - 选项数默认 4（`--options 3–5`）；背面自动附「來源：<源卡问题>」（`--show-source short|full|off`）；卡型标签保留为 `kind:<kind>`。
 - 代码块、模板占位、被压平的表格行会整卡跳过（`code_snippet`），宁可少出题。
+- 模型候选不是“直接可用”：`merge` 只标 `review: true`，`derive report` 逐条过一遍再编译。
 - 规则只保证**可定位、可判分**，不保证题目值得考：编译前用 `derive report` 抽读，重点看挖空是否挖在信息量低的词上、干扰项是否明显离谱。
 - 例子：
 

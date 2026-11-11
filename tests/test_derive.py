@@ -7,11 +7,13 @@ from ankicards import cli
 from ankicards.derive import (
     DeriveOptions,
     build_deck,
+    build_packet,
     build_plan,
     check_plan,
     compile_plan,
     derive_key,
     load_derived_plan,
+    merge_candidates,
     plain,
     summary,
 )
@@ -214,6 +216,77 @@ class GateTest(unittest.TestCase):
         cloze = [c for c in plan["cards"]
                  if c["type"] == "cloze" and c["source_q"] == "这张卡问的是什么？"]
         self.assertEqual(cloze, [])
+
+
+class MergeTest(unittest.TestCase):
+    """M3：模型候选并入 plan，只标记 review，不替人拍板。"""
+
+    def _plan(self):
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        cards = [{"type": "qa", "q": "问题甲是什么？", "a": "正确项讲的是网络请求的超时重试与退避策略。",
+                  "tags": ["kind:fact"]},
+                 {"type": "qa", "q": "问题乙是什么？", "a": "干扰项谈的是数据库索引的聚簇与非聚簇结构。",
+                  "tags": ["kind:fact"]},
+                 {"type": "qa", "q": "问题丙是什么？", "a": "第三条说的是协程调度器如何切换线程。",
+                  "tags": ["kind:fact"]},
+                 {"type": "qa", "q": "问题丁是什么？", "a": "最后一条描述图片加载的三级缓存。",
+                  "tags": ["kind:fact"]}]
+        root = write_deck(Path(tmp.name) / "src", cards)
+        return load_spec(root), build_plan(load_spec(root), None, DeriveOptions())
+
+    def _first_choice(self, plan):
+        for card in plan["cards"]:
+            if card["type"] == "choice":
+                return card
+        self.skipTest("fixture 没有生成选择题")
+
+    def test_merge_adds_model_option_and_marks_review(self):
+        spec, plan = self._plan()
+        card = self._first_choice(plan)
+        warnings, stats = merge_candidates(
+            plan, [{"source_key": card["source_key"],
+                    "distractors": ["模型补充的一个听起来合理的干扰项"]}])
+        self.assertEqual(stats["added"], 1)
+        self.assertEqual(warnings, [])
+        self.assertTrue(card.get("review"))
+        model = [o for o in card["options"] if o.get("origin") == "model"]
+        self.assertEqual(len(model), 1)
+        report, _ = check_plan(plan, spec, allow_model=True)
+        self.assertTrue(report.ok, report.errors)
+
+    def test_model_needs_allow_flag(self):
+        spec, plan = self._plan()
+        card = self._first_choice(plan)
+        merge_candidates(plan, [{"source_key": card["source_key"],
+                                 "distractors": ["模型补充的一个听起来合理的干扰项"]}])
+        report, _ = check_plan(plan, spec)
+        self.assertTrue(any("--allow-model-distractors" in w for w in report.warnings))
+
+    def test_merge_rejects_duplicates_and_caps(self):
+        spec, plan = self._plan()
+        card = self._first_choice(plan)
+        correct = card["source_excerpt"]
+        candidates = [{"source_key": card["source_key"],
+                       "distractors": [correct, "候选一值得保留吗", "候选二也值得保留吗",
+                                       "候选三会被上限挡住吗"]}]
+        _, stats = merge_candidates(plan, candidates)
+        self.assertEqual(stats["added"], 1)  # 4 个已有选项 + 1 = 5，再加就超总数
+        self.assertIn("与已有选项或正确项重复", stats["rejected"])
+        self.assertTrue(stats["rejected"].get("选项已满 5 个"))
+
+    def test_unknown_source_key_warns(self):
+        _, plan = self._plan()
+        warnings, stats = merge_candidates(
+            plan, [{"source_key": "nope", "distractors": ["某条干扰项"]}])
+        self.assertEqual(stats["added"], 0)
+        self.assertTrue(any("没有对应的选择题" in w for w in warnings))
+
+    def test_packet_declares_candidate_format(self):
+        spec, _ = self._plan()
+        packet = build_packet(spec)
+        self.assertIn("candidates_format", packet)
+        self.assertIn("derive merge", packet["instructions"])
 
 
 if __name__ == "__main__":

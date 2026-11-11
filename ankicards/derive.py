@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import html
 import re
 from dataclasses import dataclass, field
@@ -38,6 +39,10 @@ SKIP_REASONS = (
     "duplicate",
     "code_snippet",
 )
+
+CANDIDATES_VERSION = 1
+MAX_MODEL_PER_CARD = 2
+CANDIDATES_FORMAT = {"items": [{"source_key": "源卡 key", "distractors": ["候选干扰项"]}]}
 
 CHOICE_KINDS = ("fact", "procedure")
 DISTRACTOR_SOURCES = ("same-deck", "local", "hybrid", "none")
@@ -550,10 +555,98 @@ def _source_line(entry: dict, mode: str) -> str:
     return f"來源：{question[:80]}"
 
 
+
+def load_candidates(path: str | Path) -> list[dict]:
+    """读取外部模型写的干扰项候选；坏结构直接拒绝，不做猜测。"""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CardError(f"读不了候选文件 {path}：{exc}") from exc
+    if isinstance(data, dict):
+        items = data.get("items") or data.get("candidates") or []
+    elif isinstance(data, list):
+        items = data
+    else:
+        raise CardError(f"{path} 必须是对象或数组")
+    if not isinstance(items, list):
+        raise CardError(f"{path} 的 items 必须是数组")
+    out: list[dict] = []
+    for i, item in enumerate(items):
+        if not isinstance(item, dict):
+            raise CardError(f"candidates[{i}] 必须是对象")
+        key = str(item.get("source_key") or "").strip()
+        if not key:
+            raise CardError(f"candidates[{i}].source_key 不能为空")
+        raw = item.get("distractors")
+        if not isinstance(raw, list):
+            raise CardError(f"candidates[{i}].distractors 必须是数组")
+        out.append({"source_key": key,
+                    "distractors": [str(d) for d in raw if str(d).strip()]})
+    return out
+
+
+def _bump(counter: dict[str, int], key: str) -> None:
+    counter[key] = counter.get(key, 0) + 1
+
+
+def merge_candidates(plan: dict, candidates: list[dict],
+                     max_per_card: int = MAX_MODEL_PER_CARD) -> tuple[list[str], dict]:
+    """把模型候选并进对应选择题：长度、重复、相似度都过闸，超上限就拒绝。
+
+    只标记 `review: true`，不替人拍板；真正的拦截在 check_plan 的 model 规则与
+    compile 的 --allow-model-distractors。
+    """
+    by_key: dict[str, list[dict]] = {}
+    for card in plan.get("cards") or []:
+        if card.get("type") == "choice":
+            by_key.setdefault(str(card.get("source_key") or ""), []).append(card)
+
+    warnings: list[str] = []
+    stats = {"cards": 0, "added": 0, "rejected": {}}
+    for item in candidates:
+        cards = by_key.get(item["source_key"]) or []
+        if not cards:
+            warnings.append(f"{item['source_key']}：plan 里没有对应的选择题，候选被忽略")
+            continue
+        card = cards[0]
+        options = card.setdefault("options", [])
+        correct = normalize(card.get("source_excerpt", ""))
+        existing = {normalize(str(o.get("text", ""))) for o in options}
+        model_count = sum(1 for o in options if o.get("origin") == "model")
+        added_here = 0
+        for raw in item["distractors"]:
+            text = normalize(raw)
+            if not text:
+                continue
+            if not (MIN_OPTION_CHARS <= len(text) <= MAX_OPTION_CHARS):
+                _bump(stats["rejected"], "长度越界")
+                continue
+            if model_count >= max_per_card:
+                _bump(stats["rejected"], "超过每题模型候选上限")
+                break
+            if len(options) >= 5:
+                _bump(stats["rejected"], "选项已满 5 个")
+                break
+            if text in existing or _too_similar(text, correct):
+                _bump(stats["rejected"], "与已有选项或正确项重复")
+                continue
+            if any(_too_similar(text, other) for other in existing if other):
+                _bump(stats["rejected"], "与已有选项太像")
+                continue
+            options.append({"text": text, "origin": "model", "review": True})
+            existing.add(text)
+            model_count += 1
+            added_here += 1
+        if added_here:
+            card["review"] = True
+            stats["cards"] += 1
+            stats["added"] += added_here
+    return warnings, stats
+
 def check_plan(plan: dict, spec: DeckSpec, ingest: IngestData | None = None,
                allow_model: bool = False) -> tuple[Report, dict]:
     report = Report()
-    stats = {"cloze": 0, "choice": 0, "model_options": 0,
+    stats = {"cloze": 0, "choice": 0, "model_options": 0, "review": 0,
              "origins": {}, "answer_positions": {}}
     index = source_index(spec)
     seen_pairs: set[tuple[str, str]] = set()
@@ -651,6 +744,15 @@ def check_plan(plan: dict, spec: DeckSpec, ingest: IngestData | None = None,
                 else:
                     report.add_error(f"{where}.options[{j}]", "origin 必须是 same-deck/local/model")
                 stats["origins"][str(origin)] = stats["origins"].get(str(origin), 0) + 1
+            model_here = sum(1 for k, item in enumerate(raw_options)
+                             if k != answer_index and isinstance(item, dict)
+                             and item.get("origin") == "model")
+            if model_here > MAX_MODEL_PER_CARD:
+                report.add_error(f"{where}.options",
+                                 f"模型干扰项 {model_here} 个，超过上限 {MAX_MODEL_PER_CARD}")
+            if entry.get("review"):
+                report.add_warning(where, "含模型候选（review: true）：编译前需人工复审")
+                stats["review"] += 1
             if stats["model_options"] and not allow_model:
                 report.add_warning(where, "含模型干扰项：编译需 --allow-model-distractors")
             body = "choice|" + stem + "|" + "|".join(options)
@@ -717,7 +819,9 @@ PACKET_INSTRUCTIONS = (
     "②为 fact/procedure 卡的建议题干写 3–4 个干扰项候选；"
     "③标出哪些卡不值得出题。"
     "所有片段与干扰项都必须是对应 answer 的逐字子串，不许改写、摘要或编造；"
-    "输出按 plan_derive.json 的 cards/skipped 结构，交回 derive check 校验。"
+    "干扰项候选请按 derive merge 的格式交回：{\"items\":[{\"source_key\":\"…\",\"distractors\":[\"…\"]}]}，"
+    "每张卡最多 2 条，长度 2–60 字，不得与正确项或已有选项重复；"
+    "merge 之后仍需 derive check --allow-model 与人审。"
 )
 
 
@@ -745,6 +849,7 @@ def build_packet(spec: DeckSpec, limit: int = 0,
         "version": 1,
         "deck": spec.name,
         "instructions": PACKET_INSTRUCTIONS,
+        "candidates_format": CANDIDATES_FORMAT,
         "count": len(cards),
         "cards": cards,
     }

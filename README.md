@@ -283,6 +283,31 @@ error。中文人名不猜，要精确检查就声明实体。
 记录的是流程与判断（怎么选路径、怎么裁图、怎么校对），不复制字段表。
 安装与依赖说明见 [`skills/README.md`](skills/README.md)。
 
+### 模型候选：M3 协作流程
+
+规则的干扰项只按长度和卡型挑，主题相关性差。需要更像“同类题”的选项时，把素材交给外部模型，
+候选仍走同一套确定性校验：
+
+```bash
+# 1) 导出素材（不含答案以外的东西，不调用模型）
+python3 -m ankicards derive packet --deck dist/Android面试 --out packet.json --limit 50
+
+# 2) 模型按 packet 的 instructions/candidates_format 交回候选：
+#    {"items":[{"source_key":"…","distractors":["…","…"]}]}
+
+# 3) 并回 plan（原地更新；每题最多 2 条，超 5 个选项会被拒），然后人审
+python3 -m ankicards derive merge plan_derive.json --deck dist/Android面试 --candidates candidates.json
+python3 -m ankicards derive check plan_derive.json --deck dist/Android面试 --allow-model
+```
+
+要点：
+
+- `merge` 只把候选标成 `origin: "model"` 并给卡片打 `review: true`，不替人判断对错。
+- 每题默认上限 2 条模型候选；已有 4 个选项时只剩 1 个位置，想要 2 条就用 `derive plan --options 3`。
+- `derive check` 对含模型候选的卡片出「需人工复审」提示；`derive compile` 必须显式加
+  `--allow-model-distractors`，否则拒绝写盘。
+- 模型交回的候选必须长度 2–60 字、不与正确项/已有选项重复，否则 merge 直接拒收并打印原因。
+
 ### 派生题：填空题与选择题
 
 从**已写好**的牌组派生第二层卡，不重读原文。源牌组只读；派生结果先落 `plan_derive.json`，`derive check` 通过后再编译到独立目录。

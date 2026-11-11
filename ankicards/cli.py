@@ -411,6 +411,27 @@ def cmd_derive_packet(args) -> int:
     return 0
 
 
+
+def cmd_derive_merge(args) -> int:
+    from .derive import (check_plan, load_candidates, load_derived_plan,
+                         merge_candidates)
+
+    spec = load_spec(Path(args.deck))
+    plan = load_derived_plan(args.plan)
+    candidates = load_candidates(args.candidates)
+    warnings, stats = merge_candidates(plan, candidates, max_per_card=args.max_per_card)
+    report, _ = check_plan(plan, spec, allow_model=True)
+    _print_derive_report(report, {})
+    for item in warnings:
+        print(f"△ {item}")
+    if stats["rejected"]:
+        detail = " / ".join(f"{k} {v}" for k, v in sorted(stats["rejected"].items()))
+        print(f"△ 未并入：{detail}")
+    out = Path(args.out) if args.out else Path(args.plan)
+    out.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"并入模型候选 {stats['added']} 条 / 涉及 {stats['cards']} 张；写出 {out}")
+    return 0 if report.ok else 1
+
 def cmd_build(args) -> int:
     spec, report, ingest = _validated(args)
     _print_report(report)
@@ -672,6 +693,15 @@ def main(argv: list[str] | None = None) -> int:
     p_derive_packet.add_argument("--limit", type=int, default=0, help="最多导出多少张（0 不限）")
     p_derive_packet.add_argument("--section", action="append", help="只导出这些子牌组（可重复）")
     p_derive_packet.set_defaults(func=cmd_derive_packet)
+
+    p_derive_merge = derive_sub.add_parser("merge", help="把外部模型写的干扰项候选并进派生 plan")
+    p_derive_merge.add_argument("plan", help="plan_derive.json 路径（默认原地更新）")
+    p_derive_merge.add_argument("--deck", required=True, help="源牌组目录（校验用）")
+    p_derive_merge.add_argument("--candidates", required=True, help="模型交回的候选 JSON")
+    p_derive_merge.add_argument("--out", help="输出路径；默认原地更新")
+    p_derive_merge.add_argument("--max-per-card", type=int, default=2,
+                                help="每题最多并入几条模型候选（默认 2）")
+    p_derive_merge.set_defaults(func=cmd_derive_merge)
 
     p_ingest = sub.add_parser("ingest", help="把 PDF/DOCX/TXT/EPUB/HTML 摄取成可寻址的文本 JSON")
     p_ingest.add_argument("source", help="PDF/DOCX/TXT/EPUB/HTML/URL（MD 请用 import --adapter）")
