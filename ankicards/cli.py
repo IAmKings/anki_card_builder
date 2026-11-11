@@ -421,7 +421,8 @@ def cmd_derive_merge(args) -> int:
     candidates = load_candidates(args.candidates)
     warnings, stats = merge_candidates(plan, candidates,
                                        max_per_card=args.max_per_card,
-                                       replace_same_deck=args.replace_same_deck)
+                                       replace_same_deck=args.replace_same_deck,
+                                       prefer_model=args.prefer_model)
     report, _ = check_plan(plan, spec, allow_model=True)
     _print_derive_report(report, {})
     for item in warnings:
@@ -704,6 +705,8 @@ def main(argv: list[str] | None = None) -> int:
     p_derive_merge.add_argument("--out", help="输出路径；默认原地更新")
     p_derive_merge.add_argument("--max-per-card", type=int, default=2,
                                 help="每题最多并入几条模型候选（默认 2）")
+    p_derive_merge.add_argument("--prefer-model", action="store_true",
+                                help="模型候选优先替换同牌组干扰项（配合 --options 3 可得 1 正确 + 2 模型）")
     p_derive_merge.add_argument("--replace-same-deck", action="store_true",
                                 help="选项已满时替换长度最不匹配的同牌组干扰项（不替换正确项）")
     p_derive_merge.set_defaults(func=cmd_derive_merge)

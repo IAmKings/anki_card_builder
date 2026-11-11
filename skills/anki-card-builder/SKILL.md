@@ -252,7 +252,7 @@ agent 的标准链路：`precheck → plan check → plan compile → check → 
 | `python3 scripts/precheck.py --ingest <清单>` | 可卡性预检：编号点/数字句/段长/引号/表格行 | PDF 先按行拆再算（按页算会把比例稀释成 0%）；只给选路建议，不改仓库 |
 | `python3 -m ankicards plan check <plan.json> --ingest <清单> [--also <另一格式清单>] [--profile manual\|novel\|essay] [--density manual\|novel\|essay]` | 校验引用锚定/理由枚举/覆盖率/密度/跨格式一致性/剧透 | 每条卡必须有 `quote`；数字按数值比对（「三天」=「3 天」），写法不同只提示；同一定位可以出多张卡，但 `quote` 不得重叠；`--min-coverage` 设分组覆盖率下限；`--density` 只提示密度与卡型配额（不拦编译）；`--also` 拿 quote 去另一种格式里重找，验证内容一致 |
 | `python3 -m ankicards plan compile <plan.json> --out <deck> --ingest <清单> [--profile ...] [--density ...] [--with-key] [--incremental]` | 校验通过才写牌组 | 有 error 不写盘；同时写 `import-report.json`（未出卡理由 + 内容规则）；`--with-key` 生成稳定身份；`--incremental` 并进已有牌组（按 key 替换、按 `retired` 下架、其余保留） |
-| `python3 -m ankicards derive plan/check/compile/report/packet/merge` | 从已发布牌组派生填空题与选择题 | 源牌组只读；先出 plan 再编译；`--options 3–5`、`--distractor-source same-deck/local/hybrid/none`；模型候选走 `packet → merge → check --allow-model`，选项满了用 `--replace-same-deck`，编译要 `--allow-model-distractors` |
+| `python3 -m ankicards derive plan/check/compile/report/packet/merge` | 从已发布牌组派生填空题与选择题 | 源牌组只读；先出 plan 再编译；`--options 3–5`、`--distractor-source same-deck/local/hybrid/none`；模型候选走 `packet → merge → check --allow-model`，1 正确 + 2 模型用 `--options 3` + `--prefer-model`，选项满了用 `--replace-same-deck`，编译要 `--allow-model-distractors` |
 | `python3 -m ankicards plan diff <plan.json> --deck <deck>` | 对比 plan 与现有牌组 | 按归一后的卡面文本比对，报告新增/删除/改动；退出码恒为 0 |
 | `python3 -m ankicards check <deck>` | 数据契约校验 | 加 `--pdf` 查页码/裁图；加 `--ingest` 开溯源闸门；`--txt`/`--docx`/`--html` 做同源校验 |
 | `python3 -m ankicards build <deck> --out x.apkg` | 构建 apkg | 有图片题必须 `--pdf`；引用 pages/docx/txt/web 定位必须 `--ingest` |

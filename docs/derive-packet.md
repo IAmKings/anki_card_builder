@@ -46,4 +46,6 @@
 - 「需人工复审」逐条对照：干扰项是否明显荒谬、是否与正确答案同义。
 - `derive report` 抽读 10 张含模型候选的题；答错的题是「干扰项太弱」还是「干扰项也说得通」。
 - 选项满了又想要更多模型候选时，`merge --replace-same-deck` 只换同牌组项，换完仍需人审。
+- 想要全模型干扰项：`plan --options 3` + `merge --prefer-model`，得到 1 正确 + 2 模型；
+  代价是干扰项只剩 2 个，难度略降。
 - 通过后再 `derive compile --allow-model-distractors`，源牌组不受影响。

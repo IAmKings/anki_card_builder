@@ -592,7 +592,8 @@ def _bump(counter: dict[str, int], key: str) -> None:
 
 def merge_candidates(plan: dict, candidates: list[dict],
                      max_per_card: int = MAX_MODEL_PER_CARD,
-                     replace_same_deck: bool = False) -> tuple[list[str], dict]:
+                     replace_same_deck: bool = False,
+                     prefer_model: bool = False) -> tuple[list[str], dict]:
     """把模型候选并进对应选择题：长度、重复、相似度都过闸，超上限就拒绝。
 
     只标记 `review: true`，不替人拍板；真正的拦截在 check_plan 的 model 规则与
@@ -617,6 +618,17 @@ def merge_candidates(plan: dict, candidates: list[dict],
         existing = {normalize(str(o.get("text", ""))) for o in options}
         model_count = sum(1 for o in options if o.get("origin") == "model")
         added_here = 0
+
+        def worst_same_deck() -> int | None:
+            best, victim = -1, None
+            for k, opt in enumerate(options):
+                if k == answer_index or opt.get("origin") != "same-deck":
+                    continue
+                gap = abs(len(normalize(str(opt.get("text", "")))) - len(correct))
+                if gap > best:
+                    best, victim = gap, k
+            return victim
+
         for raw in item["distractors"]:
             text = normalize(raw)
             if not text:
@@ -627,6 +639,15 @@ def merge_candidates(plan: dict, candidates: list[dict],
             if model_count >= max_per_card:
                 _bump(stats["rejected"], "超过每题模型候选上限")
                 break
+            if prefer_model:
+                victim = worst_same_deck()
+                if victim is not None:
+                    options[victim] = {"text": text, "origin": "model", "review": True}
+                    existing.add(text)
+                    model_count += 1
+                    added_here += 1
+                    stats["replaced"] += 1
+                    continue
             if len(options) >= 5:
                 victim = None
                 if replace_same_deck:

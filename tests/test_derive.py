@@ -338,5 +338,34 @@ class MergePolishTest(unittest.TestCase):
         self.assertIn("50%", packet["instructions"])
 
 
+    def test_prefer_model_replaces_same_deck(self):
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        cards = [{"type": "qa", "q": "问题甲是什么？", "a": "正确项讲的是网络请求的超时重试与退避策略。",
+                  "tags": ["kind:fact"]},
+                 {"type": "qa", "q": "问题乙是什么？", "a": "干扰项谈的是数据库索引的聚簇与非聚簇结构。",
+                  "tags": ["kind:fact"]},
+                 {"type": "qa", "q": "问题丙是什么？", "a": "第三条说的是协程调度器如何切换线程。",
+                  "tags": ["kind:fact"]},
+                 {"type": "qa", "q": "问题丁是什么？", "a": "最后一条描述图片加载的三级缓存。",
+                  "tags": ["kind:fact"]}]
+        root = write_deck(Path(tmp.name) / "src", cards)
+        spec = load_spec(root)
+        plan = build_plan(spec, None, DeriveOptions(options=3))
+        card = next(c for c in plan["cards"] if c["type"] == "choice")
+        self.assertEqual(len(card["options"]), 3)
+        _, stats = merge_candidates(
+            plan,
+            [{"source_key": card["source_key"],
+              "distractors": ["模型候选一足够长可以进入选项池", "模型候选二同样足够长可以进入选项池"]}],
+            prefer_model=True)
+        self.assertEqual(stats["added"], 2)
+        self.assertEqual(stats["replaced"], 2)
+        self.assertEqual(len(card["options"]), 3)
+        origins = [o.get("origin") for o in card["options"] if o.get("origin") != "correct"]
+        self.assertEqual([o for o in card["options"] if o.get("origin") == "same-deck"], [])
+        self.assertEqual(sum(1 for o in card["options"] if o.get("origin") == "model"), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

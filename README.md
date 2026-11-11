@@ -311,6 +311,8 @@ python3 -m ankicards derive check plan_derive.json --deck dist/Android面试 --a
   最长/最短超过 2 倍时会给「长度可能泄漏答案」提示。
 - 选项已满时加 `--replace-same-deck`：用模型候选替换长度最不匹配的同牌组干扰项，
   不碰正确项、也不替换 local 选项。
+- 想要「1 正确 + 2 模型、零同牌组」：`derive plan --options 3` 后
+  `merge --prefer-model`，模型候选一到就替换同牌组项，最终 3 个选项全是模型写的。
 
 ### 派生题：填空题与选择题
 
