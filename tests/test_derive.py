@@ -289,5 +289,54 @@ class MergeTest(unittest.TestCase):
         self.assertIn("derive merge", packet["instructions"])
 
 
+class MergePolishTest(unittest.TestCase):
+    """长度泄漏与替换：两条小规则，都只提示/替换同牌组项。"""
+
+    def _plan(self):
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        cards = [{"type": "qa", "q": "问题甲是什么？", "a": "正确项讲的是网络请求的超时重试与退避策略。",
+                  "tags": ["kind:fact"]},
+                 {"type": "qa", "q": "问题乙是什么？", "a": "干扰项谈的是数据库索引的聚簇与非聚簇结构。",
+                  "tags": ["kind:fact"]},
+                 {"type": "qa", "q": "问题丙是什么？", "a": "第三条说的是协程调度器如何切换线程。",
+                  "tags": ["kind:fact"]},
+                 {"type": "qa", "q": "问题丁是什么？", "a": "最后一条描述图片加载的三级缓存。",
+                  "tags": ["kind:fact"]}]
+        root = write_deck(Path(tmp.name) / "src", cards)
+        return load_spec(root), build_plan(load_spec(root), None, DeriveOptions())
+
+    def test_option_length_spread_warns(self):
+        spec, plan = self._plan()
+        card = next(c for c in plan["cards"] if c["type"] == "choice")
+        long_text = "这是一个特别长的候选干扰项，用来把选项长度比拉开到两倍以上。" * 2
+        merge_candidates(plan, [{"source_key": card["source_key"],
+                                 "distractors": [long_text]}])
+        report, _ = check_plan(plan, spec, allow_model=True)
+        self.assertTrue(any("长度比" in w for w in report.warnings), report.warnings)
+
+    def test_replace_same_deck_when_full(self):
+        _, plan = self._plan()
+        card = next(c for c in plan["cards"] if c["type"] == "choice")
+        self.assertEqual(len(card["options"]), 4)
+        _, stats = merge_candidates(
+            plan,
+            [{"source_key": card["source_key"],
+              "distractors": ["候选一足够长可以进入选项池", "候选二同样足够长可以进入选项池"]}],
+            replace_same_deck=True)
+        self.assertEqual(stats["added"], 2)
+        self.assertEqual(stats["replaced"], 1)
+        self.assertEqual(len(card["options"]), 5)
+        self.assertEqual(sum(1 for o in card["options"] if o.get("origin") == "model"), 2)
+
+    def test_packet_reports_correct_length(self):
+        spec, _ = self._plan()
+        packet = build_packet(spec)
+        card = packet["cards"][0]
+        self.assertIn("correct_chars", card)
+        self.assertEqual(card["correct_chars"], len(card["correct"]))
+        self.assertIn("50%", packet["instructions"])
+
+
 if __name__ == "__main__":
     unittest.main()

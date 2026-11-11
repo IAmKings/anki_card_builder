@@ -419,7 +419,9 @@ def cmd_derive_merge(args) -> int:
     spec = load_spec(Path(args.deck))
     plan = load_derived_plan(args.plan)
     candidates = load_candidates(args.candidates)
-    warnings, stats = merge_candidates(plan, candidates, max_per_card=args.max_per_card)
+    warnings, stats = merge_candidates(plan, candidates,
+                                       max_per_card=args.max_per_card,
+                                       replace_same_deck=args.replace_same_deck)
     report, _ = check_plan(plan, spec, allow_model=True)
     _print_derive_report(report, {})
     for item in warnings:
@@ -429,7 +431,8 @@ def cmd_derive_merge(args) -> int:
         print(f"△ 未并入：{detail}")
     out = Path(args.out) if args.out else Path(args.plan)
     out.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"并入模型候选 {stats['added']} 条 / 涉及 {stats['cards']} 张；写出 {out}")
+    extra = f"（替换同牌组 {stats['replaced']} 条）" if stats.get("replaced") else ""
+    print(f"并入模型候选 {stats['added']} 条 / 涉及 {stats['cards']} 张{extra}；写出 {out}")
     return 0 if report.ok else 1
 
 def cmd_build(args) -> int:
@@ -701,6 +704,8 @@ def main(argv: list[str] | None = None) -> int:
     p_derive_merge.add_argument("--out", help="输出路径；默认原地更新")
     p_derive_merge.add_argument("--max-per-card", type=int, default=2,
                                 help="每题最多并入几条模型候选（默认 2）")
+    p_derive_merge.add_argument("--replace-same-deck", action="store_true",
+                                help="选项已满时替换长度最不匹配的同牌组干扰项（不替换正确项）")
     p_derive_merge.set_defaults(func=cmd_derive_merge)
 
     p_ingest = sub.add_parser("ingest", help="把 PDF/DOCX/TXT/EPUB/HTML 摄取成可寻址的文本 JSON")

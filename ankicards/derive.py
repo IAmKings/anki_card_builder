@@ -42,6 +42,7 @@ SKIP_REASONS = (
 
 CANDIDATES_VERSION = 1
 MAX_MODEL_PER_CARD = 2
+OPTION_LENGTH_RATIO_MAX = 2.0
 CANDIDATES_FORMAT = {"items": [{"source_key": "源卡 key", "distractors": ["候选干扰项"]}]}
 
 CHOICE_KINDS = ("fact", "procedure")
@@ -590,7 +591,8 @@ def _bump(counter: dict[str, int], key: str) -> None:
 
 
 def merge_candidates(plan: dict, candidates: list[dict],
-                     max_per_card: int = MAX_MODEL_PER_CARD) -> tuple[list[str], dict]:
+                     max_per_card: int = MAX_MODEL_PER_CARD,
+                     replace_same_deck: bool = False) -> tuple[list[str], dict]:
     """把模型候选并进对应选择题：长度、重复、相似度都过闸，超上限就拒绝。
 
     只标记 `review: true`，不替人拍板；真正的拦截在 check_plan 的 model 规则与
@@ -602,7 +604,7 @@ def merge_candidates(plan: dict, candidates: list[dict],
             by_key.setdefault(str(card.get("source_key") or ""), []).append(card)
 
     warnings: list[str] = []
-    stats = {"cards": 0, "added": 0, "rejected": {}}
+    stats = {"cards": 0, "added": 0, "replaced": 0, "rejected": {}}
     for item in candidates:
         cards = by_key.get(item["source_key"]) or []
         if not cards:
@@ -610,6 +612,7 @@ def merge_candidates(plan: dict, candidates: list[dict],
             continue
         card = cards[0]
         options = card.setdefault("options", [])
+        answer_index = int(card.get("answer_index", -1))
         correct = normalize(card.get("source_excerpt", ""))
         existing = {normalize(str(o.get("text", ""))) for o in options}
         model_count = sum(1 for o in options if o.get("origin") == "model")
@@ -625,8 +628,24 @@ def merge_candidates(plan: dict, candidates: list[dict],
                 _bump(stats["rejected"], "超过每题模型候选上限")
                 break
             if len(options) >= 5:
-                _bump(stats["rejected"], "选项已满 5 个")
-                break
+                victim = None
+                if replace_same_deck:
+                    best = -1
+                    for k, item in enumerate(options):
+                        if k == answer_index or item.get("origin") != "same-deck":
+                            continue
+                        gap = abs(len(normalize(str(item.get("text", "")))) - len(correct))
+                        if gap > best:
+                            best, victim = gap, k
+                if victim is None:
+                    _bump(stats["rejected"], "选项已满 5 个")
+                    break
+                options[victim] = {"text": text, "origin": "model", "review": True}
+                existing.add(text)
+                model_count += 1
+                added_here += 1
+                stats["replaced"] += 1
+                continue
             if text in existing or _too_similar(text, correct):
                 _bump(stats["rejected"], "与已有选项或正确项重复")
                 continue
@@ -750,6 +769,10 @@ def check_plan(plan: dict, spec: DeckSpec, ingest: IngestData | None = None,
             if model_here > MAX_MODEL_PER_CARD:
                 report.add_error(f"{where}.options",
                                  f"模型干扰项 {model_here} 个，超过上限 {MAX_MODEL_PER_CARD}")
+            lens = [len(normalize(str(o.get("text", "")))) for o in raw_options]
+            if len(lens) >= 2 and min(lens) and max(lens) / min(lens) > OPTION_LENGTH_RATIO_MAX:
+                report.add_warning(f"{where}.options",
+                                   f"选项长度比 {max(lens) / min(lens):.1f}（最短 {min(lens)} / 最长 {max(lens)}）：长度可能泄漏答案")
             if entry.get("review"):
                 report.add_warning(where, "含模型候选（review: true）：编译前需人工复审")
                 stats["review"] += 1
@@ -820,7 +843,8 @@ PACKET_INSTRUCTIONS = (
     "③标出哪些卡不值得出题。"
     "所有片段与干扰项都必须是对应 answer 的逐字子串，不许改写、摘要或编造；"
     "干扰项候选请按 derive merge 的格式交回：{\"items\":[{\"source_key\":\"…\",\"distractors\":[\"…\"]}]}，"
-    "每张卡最多 2 条，长度 2–60 字，不得与正确项或已有选项重复；"
+    "每张卡最多 2 条，长度与 correct 相差不超过 50%（避免长度泄漏答案），"
+    "不得与正确项或已有选项重复；"
     "merge 之后仍需 derive check --allow-model 与人审。"
 )
 
@@ -835,12 +859,15 @@ def build_packet(spec: DeckSpec, limit: int = 0,
             continue
         if not source.is_qa or len(source.answer) < MIN_ANSWER_CHARS:
             continue
+        correct = pick_excerpt(source.answer, MAX_OPTION_CHARS) or ""
         cards.append({
             "source_key": source.key,
             "section": source.section,
             "kind": source.kind,
             "q": source.q,
             "answer": source.answer,
+            "correct": correct,
+            "correct_chars": len(correct),
             "source": source.card.get("source", ""),
         })
         if limit and len(cards) >= limit:

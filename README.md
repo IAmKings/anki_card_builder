@@ -307,6 +307,10 @@ python3 -m ankicards derive check plan_derive.json --deck dist/Android面试 --a
 - `derive check` 对含模型候选的卡片出「需人工复审」提示；`derive compile` 必须显式加
   `--allow-model-distractors`，否则拒绝写盘。
 - 模型交回的候选必须长度 2–60 字、不与正确项/已有选项重复，否则 merge 直接拒收并打印原因。
+- 候选长度与正确项相差不要超过 50%（packet 里带 `correct_chars`）；`derive check` 发现选项
+  最长/最短超过 2 倍时会给「长度可能泄漏答案」提示。
+- 选项已满时加 `--replace-same-deck`：用模型候选替换长度最不匹配的同牌组干扰项，
+  不碰正确项、也不替换 local 选项。
 
 ### 派生题：填空题与选择题
 
