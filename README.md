@@ -133,6 +133,10 @@ python3 -m ankicards ingest <手册.pdf|笔记.docx|笔记.txt|book.epub|page.ht
 # 1.5) 可卡性预检：行级结构指标决定选路，页级版面指标只看跨页风险（只读，不写文件）
 python3 scripts/precheck.py --ingest .work/ingest/xxx.json [--json]
 
+# 1.6) 语义地图（可选，不进 CI）：单文档内的邻居/簇/近重复，只出报告
+pip install -r requirements-rag.txt
+python3 scripts/semantic_map.py --deck <牌组目录> --model ~/models/bge-small-zh
+
 # 2) 文档抽取：agent/人只写 plan.json（每条带逐字 quote），先校验再编译
 python3 -m ankicards plan check   plan.json --ingest .work/ingest/xxx.json --min-coverage 0.9 [--profile novel|essay] [--density essay] [--also 另一格式.json]
 python3 -m ankicards plan compile plan.json --out <牌组目录> --ingest .work/ingest/xxx.json [--with-key] [--profile novel|essay] [--density essay] [--incremental]
@@ -168,7 +172,7 @@ python3 -m ankicards verify dist/xxx.apkg
 ```
 
 判断标准、卡型与密度口径见 `skills/anki-card-builder/SKILL.md`；失败模式、抽样规则与
-预检阈值见 `docs/extraction-policy.md`。全部能力都在 CLI 里，没有隐藏入口；`python3 -m ankicards --version` 打印版本。
+预检阈值见 `docs/extraction-policy.md`；语义地图的安装、参数与输出契约见 `docs/semantic-map.md`。全部能力都在 CLI 里，没有隐藏入口；`python3 -m ankicards --version` 打印版本。
 
 退出码：
 

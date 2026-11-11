@@ -1,0 +1,6 @@
+# 只在跑 scripts/semantic_map.py（语义地图）时需要；不在 CI、不影响 ankicards。
+numpy>=2.0
+tokenizers>=0.20
+onnxruntime>=1.18
+networkx>=3.2
+# 下载模型（一次性）：pip install huggingface_hub
