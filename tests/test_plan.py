@@ -538,3 +538,87 @@ class CrossFormatTest(unittest.TestCase):
     def test_same_format_warns(self) -> None:
         report, _ = self.check(make_plan([card_g2()]), also=[self.ingest])
         self.assertTrue(any("同为 txt" in w for w in report.warnings))
+
+
+def write_epub_manifest(path: Path, chapters: list[list[str]]) -> Path:
+    """epub 形态的清单：chapter:C/p:M 定位，用于小说剧透检查。"""
+    units = []
+    for chapter, paragraphs in enumerate(chapters, 1):
+        for para, text in enumerate(paragraphs, 1):
+            units.append({"id": f"chapter:{chapter}/p:{para}",
+                          "locator": f"chapter:{chapter}/p:{para}",
+                          "kind": "paragraph", "chars": len(text), "text": text})
+    manifest = {"format": "epub", "source": "book.epub", "source_sha256": None,
+                "unit_kind": "paragraph", "unit_count": len(units),
+                "total_chars": sum(u["chars"] for u in units),
+                "chapter_count": len(chapters), "units": units, "warnings": []}
+    path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+class SpoilerTest(unittest.TestCase):
+    """novel profile：复制后文句子 / 后文名字 / 声明的实体。"""
+
+    def setUp(self) -> None:
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.manifest = write_epub_manifest(self.dir / "book.json", [
+            ["第一章。天氣很好。", "我遇見了阿明，他笑了三聲。"],
+            ["故事繼續前進。"],
+            ["林小姐走進來，全場安靜下來。Linda 也到了。", "結束。"],
+        ])
+        self.ingest = load_ingest(self.manifest)
+
+    def card(self, locator: str, q: str, a: str, quote: str) -> dict:
+        return {"kind": "claim", "locator": locator, "quote": quote,
+                "q": q, "a": a, "type": "qa"}
+
+    def plan(self, cards, entities=None) -> dict:
+        plan = {"version": 1, "deck": {"name": "小說", "source_kind": "epub"},
+                "cards": cards, "skipped": []}
+        if entities is not None:
+            plan["entities"] = entities
+        return plan
+
+    def test_copied_later_sentence_warns(self) -> None:
+        card = self.card("chapter:1/p:1", "現場會怎樣？", "全場安靜下來。", "第一章。天氣很好。")
+        report, stats = check_plan(self.plan([card]), self.ingest, profile="novel")
+        self.assertTrue(any("复制了后文才出现的句子" in w and "全場安靜" in w
+                            for w in report.warnings))
+        self.assertEqual(stats["spoiler"]["windows"], 1)
+
+    def test_later_latin_name_warns(self) -> None:
+        card = self.card("chapter:1/p:1", "Linda 是誰？", "不知道。", "第一章。天氣很好。")
+        report, stats = check_plan(self.plan([card]), self.ingest, profile="novel")
+        self.assertTrue(any("后文才出场的名字「linda」" in w for w in report.warnings))
+        self.assertEqual(stats["spoiler"]["names"], 1)
+
+    def test_early_paraphrase_no_warning(self) -> None:
+        card = self.card("chapter:1/p:2", "阿明是誰？", "我在第一章遇見的人。", "我遇見了阿明，他笑了三聲。")
+        report, stats = check_plan(self.plan([card]), self.ingest, profile="novel")
+        self.assertEqual(stats["spoiler"]["windows"], 0)
+        self.assertEqual(stats["spoiler"]["names"], 0)
+
+    def test_declared_entity_before_appearance_is_error(self) -> None:
+        card = self.card("chapter:1/p:1", "林小姐為什麼生氣？", "她走了。", "第一章。天氣很好。")
+        plan = self.plan([card], entities=[{"name": "林小姐", "locator": "chapter:3/p:1"}])
+        report, _ = check_plan(plan, self.ingest, profile="novel")
+        self.assertTrue(any("剧透：实体「林小姐」" in e for e in report.errors))
+
+    def test_declared_entity_after_appearance_ok(self) -> None:
+        card = self.card("chapter:3/p:1", "林小姐為什麼走進來？", "她讓全場安靜下來。",
+                         "林小姐走進來，全場安靜下來。")
+        plan = self.plan([card], entities=[{"name": "林小姐", "locator": "chapter:3/p:1"}])
+        report, _ = check_plan(plan, self.ingest, profile="novel")
+        self.assertEqual([e for e in report.errors if "剧透" in e], [])
+
+    def test_bad_entity_locator_errors(self) -> None:
+        plan = self.plan([], entities=[{"name": "林小姐", "locator": "line:3"}])
+        report, _ = check_plan(plan, self.ingest, profile="novel")
+        self.assertTrue(any("chapter:C/p:M" in e for e in report.errors))
+
+    def test_manual_profile_skips_check(self) -> None:
+        card = self.card("chapter:1/p:1", "Linda 是誰？", "不知道。", "第一章。天氣很好。")
+        _, stats = check_plan(self.plan([card]), self.ingest, profile="manual")
+        self.assertNotIn("spoiler", stats)

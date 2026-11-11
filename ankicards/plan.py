@@ -276,6 +276,119 @@ def _cross_check(entries: list[dict], also: list[IngestData], report: Report,
     stats["also"] = results
 
 
+_CJK_RUN_RE = re.compile(r"[\u4e00-\u9fff]+")
+_ASCII_NAME_RE = re.compile(r"\b[A-Z][a-z]{2,}\b")
+SPOILER_WINDOW = 6
+SPOILER_SAMPLE = 2
+
+
+def _cjk_windows(text: str, size: int = SPOILER_WINDOW) -> set[str]:
+    """中文里长度 6 的连续片段：够长才稀有，普通短语不会误报。"""
+    windows: set[str] = set()
+    for run in _CJK_RUN_RE.findall(normalize(text)):
+        for index in range(len(run) - size + 1):
+            windows.add(run[index:index + size])
+    return windows
+
+
+def _novel_index(ingest: IngestData) -> tuple[dict[str, tuple[int, int]], dict[str, tuple[int, int]]]:
+    """(六字片段 → 首次出现位置, 拉丁名 → 首次出现位置)，只统计 epub 定位。"""
+    windows: dict[str, tuple[int, int]] = {}
+    names: dict[str, tuple[int, int]] = {}
+    for locator, text in ingest.locators.items():
+        parsed = parse_plan_locator(locator) if isinstance(locator, str) else None
+        if not parsed or parsed[0] != "epub":
+            continue
+        key = (parsed[1], parsed[2])
+        for window in _cjk_windows(text):
+            if window not in windows or key < windows[window]:
+                windows[window] = key
+        for match in _ASCII_NAME_RE.finditer(text or ""):
+            name = match.group(0).lower()
+            if name not in names or key < names[name]:
+                names[name] = key
+    return windows, names
+
+
+def _spoiler_check(plan: dict, entries: list[dict], ingest: IngestData,
+                   report: Report, stats: dict) -> None:
+    """小说防剧透。两种确定性信号 + 一种显式声明：
+
+    1. 卡面直接复制了后文才出现的整句（六字以上的连续片段）——warning；
+    2. 卡面提到后文才出场的拉丁名（如 Linda）——warning；
+    3. plan.entities 里声明的人物/地点，卡面在它登场前提到——error。
+
+    前两条偏保守（宁可漏，不可误报）：只抓逐字复制与拉丁名，
+    中文人名的识别需要声明实体才能判，工具不做猜名。
+    """
+    windows, names = _novel_index(ingest)
+    if not windows and not names:
+        report.add_warning("spoiler", "novel profile 需要 epub 定位（chapter:C/p:M）；"
+                                      "本次 ingest 里没有，跳过剧透检查")
+        stats["spoiler"] = {"entities": 0, "windows": 0, "names": 0}
+        return
+
+    entities = plan.get("entities") or []
+    declared: list[tuple[str, tuple[int, int], str]] = []
+    for index, entity in enumerate(entities if isinstance(entities, list) else []):
+        where = f"entities[{index}]"
+        if not isinstance(entity, dict):
+            report.add_error(where, "必须是 {name, locator} 对象")
+            continue
+        name = str(entity.get("name") or "").strip()
+        locator = str(entity.get("locator") or "").strip()
+        parsed = parse_plan_locator(locator)
+        if not name:
+            report.add_error(where, "name 不能为空")
+            continue
+        if not parsed or parsed[0] != "epub":
+            report.add_error(where, f"locator 必须是 chapter:C/p:M，实际为 {locator!r}")
+            continue
+        declared.append((name, (parsed[1], parsed[2]), locator))
+
+    window_leaks = name_leaks = 0
+    for entry in entries:
+        if entry["kind"] != "card":
+            continue
+        parsed = parse_plan_locator(entry["locator"])
+        if not parsed or parsed[0] != "epub":
+            continue
+        position = (parsed[1], parsed[2])
+        for name, spot, locator in declared:
+            if name in _card_text(entry) and position < spot:
+                report.add_error(
+                    entry["where"],
+                    f"剧透：实体「{name}」在 {locator} 才出场，这张卡在 "
+                    f"{entry['locator']} 就提到了它；把它挪到出场之后，或记一条 spoiler 跳过")
+
+        quote_windows = _cjk_windows(entry.get("quote") or "")
+        late = [(window, windows[window]) for window in _cjk_windows(_card_text(entry))
+                if window in windows and window not in quote_windows
+                and windows[window] > position]
+        if late:
+            window_leaks += 1
+            late.sort(key=lambda item: item[1])
+            sample = "、".join(f"「{window}」" for window, _ in late[:SPOILER_SAMPLE])
+            spot = late[0][1]
+            report.add_warning(
+                entry["where"],
+                f"卡面复制了后文才出现的句子：{sample}（最早 chapter:{spot[0]}/p:{spot[1]}）；"
+                "小说按顺序读，这里会提前泄露情节")
+
+        card_names = {match.group(0).lower() for match in _ASCII_NAME_RE.finditer(_card_text(entry))}
+        late_names = [(name, names[name]) for name in card_names
+                      if name in names and names[name] > position]
+        if late_names:
+            name_leaks += 1
+            late_names.sort(key=lambda item: item[1])
+            name, spot = late_names[0]
+            report.add_warning(
+                entry["where"],
+                f"卡面提到后文才出场的名字「{name}」（chapter:{spot[0]}/p:{spot[1]} 才出现）")
+    stats["spoiler"] = {"entities": len(declared), "windows": window_leaks,
+                        "names": name_leaks}
+
+
 NOVEL_SKIP_REASONS = ("plot_summary", "spoiler", "character_note")
 MAX_QUOTE_CHARS_NOVEL = 800
 
@@ -387,8 +500,14 @@ def check_plan(plan: dict, ingest: IngestData,
         if not text.strip():
             report.add_error(f"{where}.locator", f"定位在 ingest 产物中没有文本: {locator}")
             continue
-        entries.append({"kind": "card", "locator": locator, "where": where,
-                        "quote": entry.get("quote") if isinstance(entry.get("quote"), str) else ""})
+        entries.append({
+            "kind": "card", "locator": locator, "where": where,
+            "quote": entry.get("quote") if isinstance(entry.get("quote"), str) else "",
+            # 卡面文本供剧透检查使用：q/a 或 cloze 的 text/extra
+            "q": entry.get("q"), "a": entry.get("a"),
+            "text": entry.get("text"), "extra": entry.get("extra"),
+            "card_kind": entry.get("kind"),
+        })
 
         key = entry.get("key")
         if key is not None and (not isinstance(key, str) or not CARD_KEY_RE.fullmatch(key)):
@@ -571,6 +690,9 @@ def check_plan(plan: dict, ingest: IngestData,
     elif min_coverage is not None:
         report.add_warning(
             "coverage", "ingest 产物既没有 groups 也没有页面，无法计算覆盖率")
+
+    if profile == "novel":
+        _spoiler_check(plan, entries, ingest, report, stats)
 
     if also:
         _cross_check(entries, also, report, stats,

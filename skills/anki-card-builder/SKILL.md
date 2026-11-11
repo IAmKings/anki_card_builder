@@ -180,6 +180,10 @@ PDF/DOCX/TXT/Web/MD 只是入口不同，最后都汇入同一个 `DeckSpec` 和
 - PDF 用 `pages`；跨页段落写 `page:N-M`（`plan compile` 会写成 `pages:[N, M]`，背面同时显示两页）；非 PDF 用 `source`；`source_kind=docx` 时 `source` 必须是 `para:N` / `para:N-M` / `table:T/rR`，`source_kind=txt` 时必须是 `line:N` 或 `line:N-M`，`source_kind=web` 时必须是 `block:N` 或 `block:N-M`，并与 ingest 对齐（区间必须整体出现在 ingest 里，起点不能大于终点）。
 - 图片题先在 `crops.json` 写 `page` + `rect`。
 
+小说用 `--profile novel` 时声明主要人物：`"entities": [{"name": "X", "locator": "chapter:3/p:1"}]`。
+卡面在人物登场前提到它会被判 error；复制后文整句、提后文拉丁名会给 warning。
+中文人名工具不猜——不声明就只做保守检查，别指望它替你发现所有剧透。
+
 同一本书有 EPUB/PDF/TXT 多份时，用 `--also` 交叉校验：quote 在另一种格式里也要逐字命中
 （`交叉 pdf 88/88（跨单元 3）`）。PDF 报「跨单元」不是错误，是换页切断——该格式单页无法整句溯源。
 

@@ -187,6 +187,11 @@ DOCX 摄取限制：压缩包 ≤20 MB、解压后 ≤200 MB、块数 ≤5000（
 
 `plan compile` 会把卡型写成卡片标签 `kind:<kind>`（卡片字段不变）。
 
+`--profile novel` 会额外做**防剧透**检查：卡面直接复制后文才出现的整句（六字以上连续片段）
+会 warning；卡面提到后文才出场的拉丁名（如 Linda）会 warning；在 plan 里用
+`"entities": [{"name": "林小姐", "locator": "chapter:3/p:1"}]` 声明的人物，若在登场前被提到就是
+error。中文人名不猜，要精确检查就声明实体。
+
 可选 `--also <另一份 ingest>`（可重复）做**跨格式交叉校验**：同一本书的 EPUB/PDF/TXT
 定位体系不同（`chapter:C/p:M`、`page:N`、`line:N`），但正文应当一致。它会拿每张卡的
 `quote` 去第二份里逐字重找，报告「交叉 pdf 88/88（跨单元 3）」。找不到说明两份文本不一致
