@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anki 卡组生成器 · 把知识，做成记忆。</title>
+<meta name="description" content="把 PDF / DOCX / TXT / HTML / EPUB 变成可溯源的 Anki 卡组：每张卡都带原文定位，答案里的关键信息必须能在引用里逐字找到。">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#FAF7F2">
+<meta name="color-scheme" content="light">
+<link rel="canonical" href="https://iamkings.github.io/anki_card_builder/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Anki 卡组生成器">
+<meta property="og:title" content="Anki 卡组生成器 · 把知识，做成记忆。">
+<meta property="og:description" content="每张卡都带原文定位，答案里的关键信息必须能在引用里逐字找到。">
+<meta property="og:url" content="https://iamkings.github.io/anki_card_builder/">
+<meta property="og:image" content="https://iamkings.github.io/anki_card_builder/assets/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#main">跳到正文</a>
+
+<!-- 顶栏 -->
+<header class="masthead">
+  <div class="wrap masthead-inner">
+    <a class="brand" href="./">
+      <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+        <rect width="64" height="64" rx="15" fill="#1F4FD8"/>
+        <path d="M32 13.5l5.46 11.06 12.2 1.78-8.83 8.6 2.08 12.16L32 41.36l-10.91 5.74 2.08-12.16-8.83-8.6 12.2-1.78z" fill="#fff"/>
+      </svg>
+      <h1>Anki 卡组生成器</h1>
+    </a>
+    <nav class="nav" aria-label="页面导航">
+      <a href="#trace">可溯源</a>
+      <a href="#flow">两条流程</a>
+      <a href="#start">快速开始</a>
+      <a href="#decks">牌组</a>
+      <a href="#gates">质量闸</a>
+      <a class="nav-gh" href="https://github.com/IAmKings/anki_card_builder" rel="noopener">
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        <span>GitHub</span>
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- 主视觉：图内已含主标语与卖点，页面只补按钮，避免文案重复 -->
+  <section class="cover" aria-labelledby="cover-title">
+    <div class="wrap">
+      <h2 id="cover-title" class="visually-hidden">产品概览</h2>
+      <figure class="cover-shot">
+        <img src="assets/hero.jpg" width="1200" height="800" fetchpriority="high" decoding="async"
+             alt="暖白底 3D 插画：MD、DOCX、PDF 文档从左侧进入流水线，依次经过 check、build、verify 三个校验站，右侧输出带问答的卡片与 .apkg 文件包。">
+      </figure>
+      <div class="cover-actions">
+        <a class="btn btn-primary" href="https://github.com/IAmKings/anki_card_builder/releases/latest/download/Android.apkg">
+          下载 Android 牌组
+          <span class="btn-meta">2305 张</span>
+        </a>
+        <a class="btn btn-ghost" href="https://github.com/IAmKings/anki_card_builder/releases/latest/download/MQTT.apkg">
+          下载 MQTT 牌组
+          <span class="btn-meta">308 张</span>
+        </a>
+        <a class="btn btn-link" href="#start">看它怎么工作</a>
+      </div>
+      <p class="cover-note">v0.4.6 · MIT · 全本地运行，导出的 .apkg 可离线复习</p>
+    </div>
+  </section>
+
+  <!-- 数字 -->
+  <section class="stats" aria-label="项目规模">
+    <div class="wrap stats-grid">
+      <div class="stat"><b>2305</b><span>Android 张卡</span></div>
+      <div class="stat"><b>308</b><span>MQTT 张卡</span></div>
+      <div class="stat"><b>5</b><span>种输入格式</span></div>
+      <div class="stat"><b>4</b><span>种卡型</span></div>
+      <div class="stat"><b>9</b><span>条确定性规则</span></div>
+    </div>
+  </section>
+
+  <!-- 可溯源 -->
+  <section class="section" id="trace" aria-labelledby="trace-title">
+    <div class="wrap">
+      <p class="eyebrow">核心机制</p>
+      <h2 id="trace-title">每张卡，都能指回原文那一句</h2>
+      <p class="lead">牌组里存的不只是问答，还存着这段问答从哪一页、哪一行来。抽取时每个字段都要过逐字校验——引用对不上，卡就编译不出来。</p>
+
+      <div class="trace-grid">
+        <div class="card-mock" role="group" aria-label="卡面示例">
+          <div class="card-face">
+            <p class="card-label">问题</p>
+            <p class="card-q">MQTT 是为哪类场景设计的，要解决什么问题？</p>
+          </div>
+          <div class="card-divider" aria-hidden="true"></div>
+          <div class="card-face">
+            <p class="card-label">答案</p>
+            <p class="card-a">专为物联网（IoT）场景设计，解决海量设备接入、低带宽、高延迟、网络不稳定等通信挑战。</p>
+            <div class="source-quote">
+              <span class="loc-chip">line:12</span>
+              <p>“<b>MQTT 设计目标</b>：专为物联网（IoT）场景设计，解决海量设备接入、低带宽、高延迟、网络不稳定等通信挑战。”</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="code-wrap">
+          <div class="code-head">
+            <span>plan.json</span>
+            <button class="copy" type="button" data-copy-target="trace-code">复制</button>
+          </div>
+<pre class="code code--json" id="trace-code"><code>{
+  "locator": "line:12",
+  "kind": "claim",
+  "quote": "**MQTT 设计目标**：专为物联网（IoT）场景设计，解决海量设备接入、低带宽、高延迟、网络不稳定等通信挑战。",
+  "q": "MQTT 是为哪类场景设计的，要解决什么问题？",
+  "a": "专为物联网（IoT）场景设计，解决海量设备接入、低带宽、高延迟、网络不稳定等通信挑战。"
+}</code></pre>
+        </div>
+      </div>
+
+      <p class="footnote">示例取自公开题库 <code>data/MQTT/MQTT_100_Key_Knowledge_Points.md</code> 第 12 行；仓库里另有 88 张完整的真实抽取样例：<code>data/一千七百種靠近/plan_book.json</code>。</p>
+    </div>
+  </section>
+
+  <!-- 两条流程 -->
+  <section class="section" id="flow" aria-labelledby="flow-title">
+    <div class="wrap">
+      <p class="eyebrow">工作方式</p>
+      <h2 id="flow-title">两条流程，一条建组，一条派生</h2>
+      <p class="lead">从一份资料做出新牌组，或者从已发布的牌组派生出填空、选择、对比题。两条都走同一套校验和同一套退出码。</p>
+
+      <div class="flow" data-tabs>
+        <div class="tabs" role="tablist" aria-label="选择流程">
+          <button class="tab is-active" role="tab" id="tab-a" aria-selected="true" aria-controls="panel-a" type="button">流程 A · 源文档 → 牌组</button>
+          <button class="tab" role="tab" id="tab-b" aria-selected="false" aria-controls="panel-b" tabindex="-1" type="button">流程 B · 已发布牌组 → 问题卡</button>
+        </div>
+
+        <div class="panel" id="panel-a" role="tabpanel" aria-labelledby="tab-a">
+          <figure class="flow-figure">
+            <button class="zoom" type="button" data-zoom="assets/flow-a.png" aria-label="放大查看流程 A 流程图">
+              <img src="assets/flow-a.png" width="1080" height="1620" loading="lazy" decoding="async"
+                   alt="流程 A 流程图：新文档经摄取、预检后在第 3 步分叉——编号点占比达到 30% 且段落够短走机械出卡，否则逐条写 plan.json；随后校验、构建、审计、抽样，最后发布 .apkg。">
+            </button>
+            <figcaption>7 步；第 3 步是唯一分叉；橙色虚线是抽样答错率高时的回退路径</figcaption>
+          </figure>
+          <div class="panel-body">
+          <ul class="points">
+            <li><b>入口统一</b>：PDF / DOCX / TXT / HTML·URL / EPUB 都先 <code>ingest</code> 成带定位的 unit，再往下走同一条链路。</li>
+            <li><b>只在一个地方分叉</b>：编号点占比 ≥ 30% 且段落够短才机械出卡，否则一律逐条写 <code>plan.json</code>。散文、讲义禁止走 <code>*-points</code> 适配器。</li>
+            <li><b>每步都有闸门</b>：<code>check</code>、<code>verify</code> 失败即 exit 1，不写盘、不打包；抽样是最后一道人工闸。</li>
+          </ul>
+          <p class="fallback"><span>回退</span>抽样自答答错率高 → 回到第 3 步改卡，不带着问题发布。</p>
+          </div>
+        </div>
+
+        <div class="panel" id="panel-b" role="tabpanel" aria-labelledby="tab-b">
+          <figure class="flow-figure">
+            <button class="zoom" type="button" data-zoom="assets/flow-b.png" aria-label="放大查看流程 B 流程图">
+              <img src="assets/flow-b.png" width="1080" height="1620" loading="lazy" decoding="async"
+                   alt="流程 B 流程图：从已有牌组生成 plan、校验后，可选地跑增强步骤，再经人工复核页、编译、构建审计，发布派生牌组。">
+            </button>
+            <figcaption>6 步；第 3 步可选增强可以整段跳过；橙色虚线是校验不过时回退到第 1 步</figcaption>
+          </figure>
+          <div class="panel-body">
+          <ul class="points">
+            <li><b>源牌组只读</b>：派生过程只读源卡，不改源牌组一个字，产出一副新的独立牌组。</li>
+            <li><b>不二次派生</b>：派生出的卡带 <code>derived:*</code> 标签，不会再被当成源卡参与派生。</li>
+            <li><b>人工复核不能省</b>：<code>derive review</code> 生成单文件离线 HTML，可标「通过 / 可疑 / 错误」并导出 <code>review-marks.json</code>。</li>
+          </ul>
+          <p class="fallback"><span>回退</span>校验不过 → 回到第 1 步重新出 plan，源牌组始终不动。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 快速开始 -->
+  <section class="section" id="start" aria-labelledby="start-title">
+    <div class="wrap">
+      <p class="eyebrow">上手</p>
+      <h2 id="start-title">一条命令链，从文档到 .apkg</h2>
+      <p class="lead">需要 Python 3.12。下面的最小链路可以直接复制；完整的参数与闸门见仓库 README。</p>
+
+      <div class="code-wrap">
+        <div class="code-head">
+          <span>终端</span>
+          <button class="copy" type="button" data-copy-target="start-code">复制</button>
+        </div>
+<pre class="code" id="start-code"><code>python3 -m ankicards ingest 手册.pdf
+python3 scripts/precheck.py --ingest .work/ingest/*.json
+# agent 只写 plan.json：每卡带逐字 quote，看过的段落记 skipped
+python3 -m ankicards plan check   plan.json --ingest .work/ingest/*.json
+python3 -m ankicards plan compile plan.json --out data/新牌组 --ingest .work/ingest/*.json
+python3 -m ankicards build  data/新牌组 --pdf 手册.pdf --ingest .work/ingest/*.json --out dist/新牌组.apkg
+python3 -m ankicards verify dist/新牌组.apkg</code></pre>
+      </div>
+
+      <p class="footnote">退出码约定：<code>0</code> 成功；<code>1</code> 数据或闸门失败；<code>2</code> 用法或环境错误（坏 JSON、加密 PDF、缺 <code>--ingest</code>、拒绝覆盖等）。</p>
+    </div>
+  </section>
+
+  <!-- 牌组 -->
+  <section class="section" id="decks" aria-labelledby="decks-title">
+    <div class="wrap">
+      <p class="eyebrow">下载</p>
+      <h2 id="decks-title">两副公开发布的牌组</h2>
+      <p class="lead">都由当前 tag 的源码重新构建，并通过 guid / 模型 / 牌组身份的 golden 校验，不是手工拼出来的包。</p>
+
+      <div class="deck-grid">
+        <article class="deck">
+          <div class="deck-head">
+            <h3>Android 开发面试</h3>
+            <span class="deck-count">2305 张</span>
+          </div>
+          <ul class="deck-parts">
+            <li>1270<span>知识</span></li>
+            <li>326<span>填空</span></li>
+            <li>651<span>选择</span></li>
+            <li>58<span>对比</span></li>
+          </ul>
+          <a class="btn btn-primary" href="https://github.com/IAmKings/anki_card_builder/releases/latest/download/Android.apkg">下载 .apkg</a>
+        </article>
+
+        <article class="deck">
+          <div class="deck-head">
+            <h3>MQTT 协议知识</h3>
+            <span class="deck-count">308 张</span>
+          </div>
+          <ul class="deck-parts">
+            <li>200<span>知识</span></li>
+            <li>30<span>填空</span></li>
+            <li>78<span>选择</span></li>
+          </ul>
+          <a class="btn btn-primary" href="https://github.com/IAmKings/anki_card_builder/releases/latest/download/MQTT.apkg">下载 .apkg</a>
+        </article>
+      </div>
+
+      <p class="footnote">仓库里另有 3 组自用牌组（江诗丹顿培训手册、员工手册、一千七百種靠近），只保留源码，不进公开 Release。</p>
+    </div>
+  </section>
+
+  <!-- 质量闸 -->
+  <section class="section" id="gates" aria-labelledby="gates-title">
+    <div class="wrap">
+      <p class="eyebrow">质量控制</p>
+      <h2 id="gates-title">九条确定性规则，三道人工闸</h2>
+      <p class="lead">能在代码里判死的就不靠人看；判不死的，明确交给人。</p>
+
+      <ul class="chips" aria-label="九条确定性规则">
+        <li>答案过短</li><li>截断</li><li>交叉引用</li><li>版面词当正面</li><li>正反重复</li>
+        <li>过长</li><li>表头当数据</li><li>一卡多点</li><li>结尾不完整</li>
+      </ul>
+
+      <div class="gates-grid">
+        <div class="gate">
+          <h3>编译期自动跑</h3>
+          <p>上面九条在 <code>import</code> 与 <code>plan compile</code> 时逐卡执行，命中即拒。</p>
+        </div>
+        <div class="gate">
+          <h3>严格模式</h3>
+          <p><code>derive plan --strict</code> 额外做题干实体锚定、碎片流跳过。公共牌组默认关闭以免误杀，私有文档建议打开。</p>
+        </div>
+        <div class="gate">
+          <h3>人工复核</h3>
+          <p><code>derive review</code> 产出离线 HTML，逐张标「通过 / 可疑 / 错误」后再编译。</p>
+        </div>
+        <div class="gate">
+          <h3>抽样自答</h3>
+          <p>发布前遮住背面自答 10 张；散文类还要能指回原文具体一句。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 格式 -->
+  <section class="section" id="formats" aria-labelledby="formats-title">
+    <div class="wrap">
+      <p class="eyebrow">输入</p>
+      <h2 id="formats-title">支持哪些资料</h2>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th scope="col">格式</th><th scope="col">定位语法</th><th scope="col">限制</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>PDF（文本型）</td><td><code>page:N</code>、<code>page:N-M</code></td><td>不做 OCR；扫描件没有文本层</td></tr>
+            <tr><td>DOCX</td><td><code>para:N</code>、<code>table:T/rR</code></td><td>≤ 20MB，解压 ≤ 200MB，≤ 5000 块</td></tr>
+            <tr><td>TXT</td><td><code>line:N</code>、<code>line:N-M</code></td><td>≤ 10MB，≤ 50000 行</td></tr>
+            <tr><td>HTML / URL</td><td><code>block:N</code></td><td>5MB、5000 块、20s 超时、5 次跳转</td></tr>
+            <tr><td>EPUB</td><td><code>chapter:C/p:M</code></td><td>图片型 / 漫画没有文本</td></tr>
+            <tr><td>MOBI / AZW</td><td>—</td><td>不支持，先用 Calibre 转 EPUB</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="table-hint">表格可左右滑动查看完整内容</p>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section class="section" id="faq" aria-labelledby="faq-title">
+    <div class="wrap">
+      <p class="eyebrow">常见问题</p>
+      <h2 id="faq-title">它做不到什么</h2>
+
+      <details class="faq-item">
+        <summary>扫描件、截图、图片型 PDF 能做吗？</summary>
+        <p>不能。这类文件没有文本层，项目不做 OCR。</p>
+      </details>
+      <details class="faq-item">
+        <summary>小说、散文可以一键全自动出卡吗？</summary>
+        <p>不行，需要人判断哪些段落值得做成卡。工具的承诺是「不撒谎」而不是「不劳而获」：<code>--ingest</code> 只证明定位存在，不证明内容正确。</p>
+      </details>
+      <details class="faq-item">
+        <summary>派生会改我原来的牌组吗？</summary>
+        <p>不会。派生流程对源牌组只读，产出的是一副新的独立牌组。</p>
+      </details>
+      <details class="faq-item">
+        <summary>重复导入会产生重复卡片吗？</summary>
+        <p>同一 guid 的卡会覆盖更新，不会重复。跨大版本升级时，模型或 guid 变化的情况需要先删旧根牌组，详见对应 Release 的升级说明。</p>
+      </details>
+      <details class="faq-item">
+        <summary>需要联网吗？</summary>
+        <p>不需要。除了抓取 URL 那一步，其余全在本地运行。</p>
+      </details>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-inner">
+    <div>
+      <p class="footer-title">Anki 卡组生成器</p>
+      <p class="footer-note">把 PDF / DOCX / TXT / HTML / EPUB 变成可溯源的 Anki 卡组。</p>
+    </div>
+    <nav class="footer-links" aria-label="相关链接">
+      <a href="https://github.com/IAmKings/anki_card_builder" rel="noopener">仓库</a>
+      <a href="https://github.com/IAmKings/anki_card_builder/releases" rel="noopener">Releases</a>
+      <a href="https://github.com/IAmKings/anki_card_builder/blob/master/CHANGELOG.md" rel="noopener">CHANGELOG</a>
+      <a href="https://github.com/IAmKings/anki_card_builder/blob/master/README.md" rel="noopener">README</a>
+    </nav>
+  </div>
+  <div class="wrap footer-base">
+    <span>MIT License</span>
+    <span>上次更新：2026-11-13</span>
+  </div>
+</footer>
+
+<dialog class="lightbox" id="lightbox" aria-label="查看大图">
+  <button class="lightbox-close" type="button" aria-label="关闭">×</button>
+  <img alt="">
+</dialog>
+
+<script src="main.js" defer></script>
+</body>
+</html>
