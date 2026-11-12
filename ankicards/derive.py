@@ -40,6 +40,7 @@ SKIP_REASONS = (
     "code_snippet",
     "derived_card",
     "exam_source",
+    "option_length_ratio",
 )
 
 CANDIDATES_VERSION = 1
@@ -297,6 +298,19 @@ def _too_similar(left: str, right: str) -> bool:
     return SequenceMatcher(None, a, b).ratio() >= OPTION_SIMILARITY
 
 
+_BAD_HEAD = "`*+-.,;:!?、。，；：）)]】」』’”“\"' "
+_BAD_TAIL = "，、；：,;:（([【「『‘“\"' "
+
+
+def _option_shape_ok(text: str) -> bool:
+    value = text.strip()
+    if not value:
+        return False
+    if value[0] in _BAD_HEAD or value[-1] in _BAD_TAIL:
+        return False
+    return True
+
+
 def _option_ok(text: str, correct: str, stem: str, chosen: list[str]) -> bool:
     value = normalize(text)
     if not (MIN_OPTION_CHARS <= len(value) <= MAX_OPTION_CHARS):
@@ -401,6 +415,10 @@ def _choice_entry(source: SourceCard, index: dict[str, SourceCard],
         value = normalize(text)
         if value in seen:
             return False
+        if not _option_shape_ok(value):
+            return False
+        if len(value) / max(1, len(correct)) > OPTION_LENGTH_RATIO_MAX:
+            return False
         if not _option_ok(value, correct, stem, [d["text"] for d in distractors]):
             return False
         seen.add(value)
@@ -414,16 +432,49 @@ def _choice_entry(source: SourceCard, index: dict[str, SourceCard],
     }[opts.distractor_source]
 
     if "same-deck" in tiers:
+        # 先按「同 section、同 kind」圈定候选，再按摘录长度与正确项的差排序：
+        # 长度接近的干扰项不会靠长短被一眼排除，也不容易把正确项衬得突兀。
         pool = [s for s in index.values() if s.key != source.key]
-        pool.sort(key=lambda s: (s.section != source.section,
-                                 s.kind != source.kind,
-                                 abs(len(s.answer) - len(correct)),
-                                 s.key))
+        cache: dict[str, str | None] = {}
+
+        def excerpt_of(other: SourceCard) -> str | None:
+            if other.key not in cache:
+                cache[other.key] = pick_excerpt(other.answer, opts.max_option_chars)
+            return cache[other.key]
+
+        from difflib import SequenceMatcher
+
+        def topic(a: str, b: str) -> float:
+            return SequenceMatcher(None, a[:80], b[:80]).ratio()
+
+        ranked: list[tuple[int, int, float, int, str, SourceCard, str]] = []
         for other in pool:
+            candidate = excerpt_of(other)
+            if not candidate:
+                continue
+            related = max(topic(other.q, stem), topic(candidate, correct))
+            ranked.append((int(other.section != source.section),
+                           int(other.kind != source.kind),
+                           related,
+                           abs(len(candidate) - len(correct)),
+                           other.key, other, candidate))
+        # 长度带内优先贴题：先限 0.7–1.5，不够再放 0.5–2.0，最后才退回全池。
+        # 只按长度排会选出无关选项，只按主题排又会把长短差拉大。
+        def ordered(lo: float, hi: float):
+            band = [item for item in ranked
+                    if lo <= len(item[6]) / max(1, len(correct)) <= hi]
+            band.sort(key=lambda item: (-item[2], item[0], item[1], item[3], item[4]))
+            return band
+
+        ranked.sort(key=lambda item: (-item[2], item[0], item[1], item[3], item[4]))
+        shortlist = (ordered(0.7, 1.5) or ordered(0.5, 2.0)
+                     or [item for item in ranked
+                         if len(item[6]) / max(1, len(correct)) <= 2.0]
+                     or ranked)
+        for _, _, _, _, _, other, candidate in shortlist:
             if len(distractors) >= opts.options - 1:
                 break
-            candidate = pick_excerpt(other.answer, opts.max_option_chars)
-            if candidate and accept(candidate):
+            if accept(candidate):
                 distractors.append({"text": normalize(candidate), "correct": False,
                                     "origin": "same-deck", "source_key": other.key})
     if semantic:
@@ -444,6 +495,18 @@ def _choice_entry(source: SourceCard, index: dict[str, SourceCard],
         return None, "not_enough_distractors"
 
     options = [{"text": correct, "correct": True}] + distractors
+
+    def ratio_ok(items: list[dict]) -> bool:
+        lens = [len(item["text"]) for item in items]
+        return max(lens) / max(1, min(lens)) <= OPTION_LENGTH_RATIO_MAX
+
+    while not ratio_ok(options) and len(options) > 3:
+        victims = [i for i, item in enumerate(options) if not item.get("correct")]
+        shortest = min(victims, key=lambda i: len(options[i]["text"]))
+        options.pop(shortest)
+    if not ratio_ok(options):
+        return None, "option_length_ratio"
+
     order = sorted(range(len(options)),
                    key=lambda i: _digest(opts.seed, source.key, i))
     shuffled = [options[i] for i in order]
