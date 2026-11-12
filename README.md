@@ -1,3 +1,5 @@
+![Anki 卡组生成器](assets/anki-card-builder-promo.png)
+
 # Anki 卡组生成器
 
 把 PDF / DOCX / TXT / HTML / EPUB 变成**可溯源**的 Anki 卡组：每张卡都带原文定位，答案里的关键信息必须能在引用里逐字找到。仓库同时发布公开牌组，并提供从已发布牌组**派生填空题 / 选择题 / 对比题**的工具链。
@@ -59,6 +61,8 @@
 
 ### 流程 A：源文档 → 牌组
 
+![流程 A：源文档 → 牌组](assets/flow-a-source-to-deck.png)
+
 | 步骤 | 命令 | 产物 | 失败时 |
 |---|---|---|---|
 | 1 摄取 | `ankicards ingest 手册.pdf` | `.work/ingest/*.json`（unit、定位、`groups`、sha256） | exit 2：文件不可读/加密/超限 |
@@ -88,6 +92,8 @@ python3 -m ankicards verify dist/新牌组.apkg
 `plan check` 的常用口径：`--profile manual|novel|essay`（引用上限与可用理由）、`--density manual|novel|essay`（字/张）、`--also 另一格式.json`（跨格式逐字对照）、`--min-coverage`（覆盖率下限）。
 
 ### 流程 B：已发布牌组 → 问题卡
+
+![流程 B：已发布牌组 → 问题卡](assets/flow-b-derive.png)
 
 | 步骤 | 命令 | 产物 |
 |---|---|---|
