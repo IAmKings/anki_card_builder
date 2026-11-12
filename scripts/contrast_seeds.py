@@ -20,6 +20,15 @@ MIN_SCORE = 0.72
 MAX_PER_CARD = 1
 ITEM_SPLIT = re.compile(r"[•·]\s*|\n+")
 LABEL = re.compile(r"^\s*([^：:]{2,30})[：:]\s*(.+)$", re.S)
+CLEAN_LABEL = re.compile(r"^[\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z0-9_（）()·.\-\s]{0,29}$")
+META_LABEL = re.compile(
+    r"(包含|包括|分为|场景|原因|原理|优点|缺点|特点|作用|注意|说明|结论|总结|建议|示例|例如|"
+    r"背景|目的|意义|流程|步骤|方式|方法|方案|区别|联系|部分|方面|情况|不推荐|推荐|适用|应用|"
+    r"优势|劣势|好处|坏处|局限|缺陷|不足|实践|对比|选择|"
+    r"代码|示例|正解|姿势|示范|开销|匮乏|错误|纠正|含义|内涵|本质)"
+)
+CODE_ANSWER = re.compile(r"```|<pre|\bpublic\s+(?:class|interface)|\bSystem\.\w+|=>|\bvoid\s+\w+\(")
+META_SUFFIX = re.compile(r"(使用|用法|手段|阈值|痛点|场景|情况)$")
 STOP_LABELS = {
     "概念", "定义", "优点", "缺点", "特点", "原理", "好处", "优势", "劣势",
     "适用场景", "应用场景", "实现方式", "注意事项", "四个必要条件", "性能好",
@@ -49,6 +58,7 @@ def pick_pairs(cards: list[dict], seeds: dict, min_score: float = MIN_SCORE,
     labels = {c.get("id"): c.get("label", "") for c in seeds.get("clusters") or []}
     seen: set[tuple[str, str]] = set()
     pairs: list[dict] = []
+    seen: set[frozenset] = set()
     for card in cards:
         entry = (seeds.get("cards") or {}).get(card["key"]) or {}
         cluster = entry.get("cluster")
@@ -103,21 +113,41 @@ def split_items(answer: str) -> list[dict]:
         if match:
             label = match.group(1).strip()
             text = match.group(2).strip()
+            if re.match(r"^\s*\d+[.、)）]", text):
+                continue
             if (1 < len(label) <= 30 and len(text) >= 4
-                    and label not in STOP_LABELS and not re.search(r"(好|高|易用)$", label)):
+                    and label not in STOP_LABELS
+                    and CLEAN_LABEL.match(label)
+                    and not META_LABEL.search(label)
+                    and not META_SUFFIX.search(label)
+                    and not re.search(r"(好|高|易用)$", label)):
                 items.append({"label": label, "text": text})
     return items
+
+
+def _pair_identity(left: str, right: str) -> frozenset:
+    def norm(label: str) -> str:
+        return re.sub(r"\s+", "", re.sub(r"[（(].*?[)）]", "", label)).lower()
+    return frozenset({norm(left), norm(right)})
 
 
 def pick_item_pairs(cards: list[dict], per_card: int = 2, limit: int = 60) -> list[dict]:
     """同一张卡的答案里，相邻两个带标签条目 → 一道「A 和 B 有什么区别」候选。"""
     pairs: list[dict] = []
+    seen: set[frozenset] = set()
     for card in cards:
+        # 代码/示例型答案里的「终极正解姿势」「正确代码示范」这类小标题不是概念对比。
+        if CODE_ANSWER.search(card["a"] or ""):
+            continue
         items = split_items(card["a"])
         made = 0
         for left, right in zip(items, items[1:]):
             if made >= per_card:
                 break
+            identity = _pair_identity(left["label"], right["label"])
+            if identity in seen:
+                continue
+            seen.add(identity)
             pairs.append({
                 "id": f"i{len(pairs) + 1}",
                 "type": "intra-card",

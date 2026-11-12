@@ -179,36 +179,6 @@
   {
    "id": "i12",
    "type": "intra-card",
-   "card": "5f1c8eb422eb",
-   "context": "什么是协程？它与线程的根本区别和联系是什么？为什么说它是“轻量级线程”？",
-   "left": {
-    "label": "本质",
-    "text": "协程（Coroutine）在语言层面是一个 由程序主动控制的、可挂起并恢复的计算任务 。它不是操作系统级别的概念，而是运行在用户态的轻量级并发框架。"
-   },
-   "right": {
-    "label": "联系",
-    "text": "协程无法脱离线程独自运行。协程的任务最终必须分配到某一个或某一组具体的线程上由 CPU 执行。所以，协程是 对线程的一层上层封装和逻辑抽象 。"
-   },
-   "prompt": "「本质」和「联系」有什么区别？"
-  },
-  {
-   "id": "i13",
-   "type": "intra-card",
-   "card": "243553603207",
-   "context": "请从底层原理（CPS 转换和状态机）解释 Kotlin 协程是如何实现“用同步的代码风格写出异步逻辑”的？",
-   "left": {
-    "label": "状态机（State Machine）",
-    "text": "编译器会为该 suspend 函数生成一个继承自 SuspendLambda 的内部类。该类内部包含一个 label 状态计数器。函数体内每一个挂起点的断开处，都会将代码切分成不同的状态分支（Switch-Case 结构）。"
-   },
-   "right": {
-    "label": "执行流程",
-    "text": "当协程第一次执行时，label = 0，进入第一个分支，发起异步请求；当遇到挂起函数时，该函数直接返回 COROUTINE_SUSPENDED 标记，协程跳出并释放当前线程。当异步操作完成后，会回调传入的 Continuation.resumeWith()，此时 label 自增为 1，函数被重新调用，直接跳转到第二个分支继续执行，从而将异步回调扁平化为了顺序执行的代码。"
-   },
-   "prompt": "「状态机（State Machine）」和「执行流程」有什么区别？"
-  },
-  {
-   "id": "i14",
-   "type": "intra-card",
    "card": "2df930843185",
    "context": "开启协程的 launch 和 async 有什么核心区别？它们分别适用于什么场景？",
    "left": {
@@ -222,52 +192,7 @@
    "prompt": "「返回值」和「结果获取与异常」有什么区别？"
   },
   {
-   "id": "i15",
-   "type": "intra-card",
-   "card": "2df930843185",
-   "context": "开启协程的 launch 和 async 有什么核心区别？它们分别适用于什么场景？",
-   "left": {
-    "label": "结果获取与异常",
-    "text": "launch 的设计哲学是 \"Fire and forget\"（发射后不管），内部抛出未捕获异常时会直接向上传递给父协程或引发崩溃；async 的设计哲学是期待结果，必须通过调用 deferred.await() 来挂起等待并获取最终结果，且其内部抛出的异常会在调用 await() 时才显式抛出（如果是在 supervisorScope 中）。"
-   },
-   "right": {
-    "label": "场景",
-    "text": "不需要结果的纯触发操作（如保存本地、打印日志）用 launch；需要并发执行多个任务并组装最终结果（如同时请求用户数据和订单数据）用 async。"
-   },
-   "prompt": "「结果获取与异常」和「场景」有什么区别？"
-  },
-  {
-   "id": "i16",
-   "type": "intra-card",
-   "card": "5072834a382f",
-   "context": "runBlocking 的作用和底层原理是什么？为什么生产环境不推荐使用它？",
-   "left": {
-    "label": "作用",
-    "text": "runBlocking 是一个连接普通函数与协程世界的桥梁。它会启动一个新协程，并 彻底阻塞当前线程 ，直到其内部的所有协程任务全部执行完毕。"
-   },
-   "right": {
-    "label": "底层原理",
-    "text": "它内部通过一个事件循环（EventLoop）机制，在当前线程不断循环等待协程状态机的恢复信号。"
-   },
-   "prompt": "「作用」和「底层原理」有什么区别？"
-  },
-  {
-   "id": "i17",
-   "type": "intra-card",
-   "card": "5072834a382f",
-   "context": "runBlocking 的作用和底层原理是什么？为什么生产环境不推荐使用它？",
-   "left": {
-    "label": "底层原理",
-    "text": "它内部通过一个事件循环（EventLoop）机制，在当前线程不断循环等待协程状态机的恢复信号。"
-   },
-   "right": {
-    "label": "不推荐原因",
-    "text": "由于它会无条件阻塞调用它的线程（如 UI 线程），完全背离了协程“非阻塞式挂起”的设计初衷，极易引发界面卡死或 ANR。一般仅用于单元测试编写或 main 函数的简单框架启动。"
-   },
-   "prompt": "「底层原理」和「不推荐原因」有什么区别？"
-  },
-  {
-   "id": "i18",
+   "id": "i13",
    "type": "intra-card",
    "card": "a5f49f6afe76",
    "context": "coroutineScope（注意全小写）与 supervisorScope 函数的区别是什么？",
@@ -282,22 +207,7 @@
    "prompt": "「coroutineScope」和「supervisorScope」有什么区别？"
   },
   {
-   "id": "i19",
-   "type": "intra-card",
-   "card": "84a3aa3bf755",
-   "context": "什么是 CoroutineContext？它的底层数据结构是什么？它是如何实现通过 + 拼接的？",
-   "left": {
-    "label": "底层数据结构",
-    "text": "它在设计上表现为一个类似 类型安全的、异构的链表或集合 （实质是 CombinedContext、Element 和 EmptyCoroutineContext）。"
-   },
-   "right": {
-    "label": "+ 运算符重载",
-    "text": "Kotlin 重载了 CoroutineContext.plus 运算符。当使用 + 拼接上下文时（如 Dispatchers.IO + Job()），框架会遍历元素，如果右边的元素与左边元素类型（Key）相同，则 覆盖替换 ；如果不同，则组合成一个 CombinedContext（类似于链表节点），从而动态构建出复合的上下文配置。"
-   },
-   "prompt": "「底层数据结构」和「+ 运算符重载」有什么区别？"
-  },
-  {
-   "id": "i20",
+   "id": "i14",
    "type": "intra-card",
    "card": "7fd3e64b9d1d",
    "context": "deferred.await() 和 job.join() 都可以用来等待一个任务结束，它们在对待异常和取消时有什么本质区别？",
@@ -312,7 +222,7 @@
    "prompt": "「job.join()」和「deferred.await()」有什么区别？"
   },
   {
-   "id": "i21",
+   "id": "i15",
    "type": "intra-card",
    "card": "a438eb0737d8",
    "context": "简述 withTimeout 与 withTimeoutOrNull 的机制及区别。",
@@ -327,22 +237,7 @@
    "prompt": "「withTimeout」和「withTimeoutOrNull」有什么区别？"
   },
   {
-   "id": "i22",
-   "type": "intra-card",
-   "card": "aa7623f448bb",
-   "context": "协程中的 CoroutineExceptionHandler（全局异常处理器）的作用是什么？它能捕获所有协程的异常吗？",
-   "left": {
-    "label": "作用",
-    "text": "它是全局的未捕获异常兜底处理器，类似于 Java 线程的 UncaughtExceptionHandler。当一个协程发生严重崩溃，且异常一路上路传递到根协程（根作用域）依然没有被 try-catch 捕获时，系统会回调它来做最后的日志记录或崩溃统计。"
-   },
-   "right": {
-    "label": "限制（不能捕获所有）",
-    "text": "1. 它 只能安装在根协程上 （通过根 Scope 传入，或者最外层的 launch）。安装在子协程（如嵌套 launch 的内部）是 完全无效、无法触发的 。 2. 它 无法捕获 async 协程链条中的异常 （因为 async 默认期待用户在调用 await() 时自己去处理异常，而不是由全局兜底抛出，除非该 async 位于根作用域且无父 Job 控制）。"
-   },
-   "prompt": "「作用」和「限制（不能捕获所有）」有什么区别？"
-  },
-  {
-   "id": "i23",
+   "id": "i16",
    "type": "intra-card",
    "card": "1941b683a725",
    "context": "多个子协程并发执行时，如果多个协程在同一极短时间内先后抛出不同的异常，最终父协程会暴露哪一个异常？其他的异常去哪了？",
@@ -357,37 +252,7 @@
    "prompt": "「结果」和「去向（异常压制机制）」有什么区别？"
   },
   {
-   "id": "i24",
-   "type": "intra-card",
-   "card": "06a0740a5b55",
-   "context": "协程框架提供了什么方案来替代传统的 synchronized 锁以确保并发安全？",
-   "left": {
-    "label": "核心优势",
-    "text": "Mutex 是 协程级别 的互斥锁。它最核心的加锁方法是挂起函数 mutex.lock()（或扩展函数 mutex.withLock { ... }）。"
-   },
-   "right": {
-    "label": "非阻塞原理",
-    "text": "当协程 A 调用 mutex.lock() 发现锁已被其他协程占有时，当前协程 A 会 挂起（释放当前线程让其他任务工作） ，并将自己排入 Mutex 内部的等待队列中。当锁释放时，队列中的下一个协程会自动恢复。在整个争用期间， 没有任何一条底层的系统线程被真正阻塞卡死 ，完美契合了协程的非阻塞哲学。"
-   },
-   "prompt": "「核心优势」和「非阻塞原理」有什么区别？"
-  },
-  {
-   "id": "i25",
-   "type": "intra-card",
-   "card": "349a17706ed2",
-   "context": "简述协程中的 ThreadLocal 传递陷阱，以及如何正确在协程间传递 ThreadLocal 值？",
-   "left": {
-    "label": "陷阱原因",
-    "text": "ThreadLocal 绑定的是特定的 Java 线程。由于协程在遇到挂起点恢复后，极有可能被调度到线程池中的 另一条全新工作线程 上执行，此时原本存储在旧线程的 ThreadLocal 变量值在当前新线程中直接变为了 null，导致上下文数据断代丢失。"
-   },
-   "right": {
-    "label": "正确写法",
-    "text": "在启动协程或切换上下文时，必须结合使用 ThreadLocal.asContextElement(value = ...) 扩展函数将 ThreadLocal 包装为协程上下文的一个元素。"
-   },
-   "prompt": "「陷阱原因」和「正确写法」有什么区别？"
-  },
-  {
-   "id": "i26",
+   "id": "i17",
    "type": "intra-card",
    "card": "48e3f5e4fd2c",
    "context": "当向一个已经关闭的 Channel 发送数据（send()）或者从中接收数据（receive()）时，分别会发生什么？",
@@ -402,22 +267,7 @@
    "prompt": "「发送方」和「接收方」有什么区别？"
   },
   {
-   "id": "i27",
-   "type": "intra-card",
-   "card": "48e3f5e4fd2c",
-   "context": "当向一个已经关闭的 Channel 发送数据（send()）或者从中接收数据（receive()）时，分别会发生什么？",
-   "left": {
-    "label": "接收方",
-    "text": "调用 receive() 试图从一个已被关闭的 Channel 读取数据时："
-   },
-   "right": {
-    "label": "*注",
-    "text": "推荐消费端使用 for (item in channel) 或 channel.consumeEach { ... }，框架内部会自动捕获关闭异常并优雅跳出循环。*"
-   },
-   "prompt": "「接收方」和「*注」有什么区别？"
-  },
-  {
-   "id": "i28",
+   "id": "i18",
    "type": "intra-card",
    "card": "b751bb1e138a",
    "context": "Channel.trySend() 和 Channel.send() 的区别是什么？它们各自的使用场景是什么？",
@@ -432,22 +282,7 @@
    "prompt": "「send(element)」和「trySend(element)」有什么区别？"
   },
   {
-   "id": "i29",
-   "type": "intra-card",
-   "card": "b751bb1e138a",
-   "context": "Channel.trySend() 和 Channel.send() 的区别是什么？它们各自的使用场景是什么？",
-   "left": {
-    "label": "trySend(element)",
-    "text": "是一个 普通同步函数 。它永远不会挂起。它会立即尝试向通道内塞入数据，并返回一个 ChannelResult 对象。如果塞入成功返回 Success；如果通道满或关闭，直接返回 Failure，不阻塞线程也不挂起。"
-   },
-   "right": {
-    "label": "使用场景",
-    "text": "在协程体内、允许挂起的耗时流水线中使用 send()；而在非协程环境（如传统 Java 回调、点击事件、Android 的常规 BroadcastReceiver）中，由于无法调用挂起函数，必须使用 trySend() 来传递事件。"
-   },
-   "prompt": "「trySend(element)」和「使用场景」有什么区别？"
-  },
-  {
-   "id": "i30",
+   "id": "i19",
    "type": "intra-card",
    "card": "4dcc20f48a5b",
    "context": "什么是 produce 和 actor 协程构建器？",
@@ -462,82 +297,7 @@
    "prompt": "「produce」和「actor」有什么区别？"
   },
   {
-   "id": "i31",
-   "type": "intra-card",
-   "card": "beb96776a306",
-   "context": "为什么在高并发、高频大数据流传递场景下，Kotlin 官方更推荐使用 Flow 替代 Channel？",
-   "left": {
-    "label": "资源开销",
-    "text": "Channel 是一个重量级的、多协程共享的、有状态的并发通信实体。无论你是否去消费，Channel 底层的缓冲区及双向等待链表等内存常驻开销都是实打实存在的，它表现为“热（Hot）”的。"
-   },
-   "right": {
-    "label": "流式 API 匮乏",
-    "text": "Channel 缺乏丰富的中间操作符（如 map, filter, zip 等），不适合做复杂的流水线数据清洗。"
-   },
-   "prompt": "「资源开销」和「流式 API 匮乏」有什么区别？"
-  },
-  {
-   "id": "i32",
-   "type": "intra-card",
-   "card": "beb96776a306",
-   "context": "为什么在高并发、高频大数据流传递场景下，Kotlin 官方更推荐使用 Flow 替代 Channel？",
-   "left": {
-    "label": "流式 API 匮乏",
-    "text": "Channel 缺乏丰富的中间操作符（如 map, filter, zip 等），不适合做复杂的流水线数据清洗。"
-   },
-   "right": {
-    "label": "Flow 的优势",
-    "text": "Flow 表现为“冷（Cold）”的（除非是热流），不消费就不占任何内存空间和执行线程。它拥有极度丰富的、高阶的函数式链式操作符，且底层依托极其轻量级的状态机转换，性能和表达力远超 Channel。"
-   },
-   "prompt": "「流式 API 匮乏」和「Flow 的优势」有什么区别？"
-  },
-  {
-   "id": "i33",
-   "type": "intra-card",
-   "card": "106185e4d6ee",
-   "context": "简述 Channel 的 BroadcastChannel（广播通道）的作用及其被废弃的原因。",
-   "left": {
-    "label": "作用",
-    "text": "传统的 Channel 属于一对一（一对一消费），一条数据只能被一个接收者消费。而 BroadcastChannel 允许将数据同时广播给多路订阅者（一对多）。"
-   },
-   "right": {
-    "label": "废弃原因",
-    "text": "它的状态管理、取消链条过于臃肿和复杂，在处理高频背压（Backpressure）时极易出现死锁或缓冲溢出，并且它的设计背离了纯函数式数据流的哲学。Kotlin 官方目前已经彻底废弃了它，并推荐使用更为强大、线程安全且轻量的响应式热流 SharedFlow 或 StateFlow 来完全接管广播分发业务。"
-   },
-   "prompt": "「作用」和「废弃原因」有什么区别？"
-  },
-  {
-   "id": "i34",
-   "type": "intra-card",
-   "card": "1903316de1f5",
-   "context": "解释什么是 Flow？它与 Sequence（序列）有什么区别和联系？",
-   "left": {
-    "label": "联系",
-    "text": "Flow 在设计理念和 API 命名上（如 map, filter）与 Sequence 高度一致，它们都支持 惰性求值 （只有真正开始消费时，中间操作符才会执行）。"
-   },
-   "right": {
-    "label": "区别（异步挂起 vs 同步阻塞）",
-    "text": "Sequence 的迭代器和数据产生是 同步且阻塞 的，如果在其内部进行耗时 I/O，会死死卡住当前调用线程；而 Flow 是专门为协程打造的，其内部的发射操作 emit 和消费操作 collect 全都是挂起函数（suspend） ，支持在不阻塞线程的情况下进行异步长周期的流式数据传递。"
-   },
-   "prompt": "「联系」和「区别（异步挂起 vs 同步阻塞）」有什么区别？"
-  },
-  {
-   "id": "i35",
-   "type": "intra-card",
-   "card": "dd497ddeb9b6",
-   "context": "为什么说标准 Flow 是“冷流（Cold Stream）”？请通过底层运行机制解释。",
-   "left": {
-    "label": "冷流含义",
-    "text": "是指 代码块本身不会主动执行，只有当真正调用末端操作符（如 collect()）时，数据流才会开始生产和发射 。没有订阅者，就没有数据流动。"
-   },
-   "right": {
-    "label": "底层运行机制",
-    "text": "Flow 接口的定义极其精简，内部只有一个方法：suspend fun collect(collector: FlowCollector )。"
-   },
-   "prompt": "「冷流含义」和「底层运行机制」有什么区别？"
-  },
-  {
-   "id": "i36",
+   "id": "i20",
    "type": "intra-card",
    "card": "66773a25b317",
    "context": "什么是 Flow 的“上游（Upstream）”和“下游（Downstream）”？",
@@ -552,7 +312,7 @@
    "prompt": "「上游」和「下游」有什么区别？"
   },
   {
-   "id": "i37",
+   "id": "i21",
    "type": "intra-card",
    "card": "5918b7e5ec8e",
    "context": "Flow 有哪些常见的末端操作符（Terminal Operators）？",
@@ -561,28 +321,13 @@
     "text": "最基础、最通用的全量流式收集器。"
    },
    "right": {
-    "label": "first() / firstOrNull()",
-    "text": "只截取并返回流中的第一条数据，随后立即取消上游。"
+    "label": "single()",
+    "text": "确保流中有且仅有一条数据，若超过一条或没有则抛出异常。"
    },
-   "prompt": "「collect(...)」和「first() / firstOrNull()」有什么区别？"
+   "prompt": "「collect(...)」和「single()」有什么区别？"
   },
   {
-   "id": "i38",
-   "type": "intra-card",
-   "card": "5918b7e5ec8e",
-   "context": "Flow 有哪些常见的末端操作符（Terminal Operators）？",
-   "left": {
-    "label": "first() / firstOrNull()",
-    "text": "只截取并返回流中的第一条数据，随后立即取消上游。"
-   },
-   "right": {
-    "label": "toList() / toSet()",
-    "text": "将流中的所有数据异步收集并组装成一个标准的 Java 集合返回。"
-   },
-   "prompt": "「first() / firstOrNull()」和「toList() / toSet()」有什么区别？"
-  },
-  {
-   "id": "i39",
+   "id": "i22",
    "type": "intra-card",
    "card": "5a535c64f49d",
    "context": "中间操作符 map、filter、transform 的区别是什么？",
@@ -597,7 +342,7 @@
    "prompt": "「map」和「filter」有什么区别？"
   },
   {
-   "id": "i40",
+   "id": "i23",
    "type": "intra-card",
    "card": "5a535c64f49d",
    "context": "中间操作符 map、filter、transform 的区别是什么？",
@@ -612,7 +357,7 @@
    "prompt": "「filter」和「transform」有什么区别？"
   },
   {
-   "id": "i41",
+   "id": "i24",
    "type": "intra-card",
    "card": "48883552221a",
    "context": "简述 onStart、onEach、onCompletion 几个核心生命周期操作符的作用。",
@@ -627,7 +372,7 @@
    "prompt": "「onStart」和「onEach」有什么区别？"
   },
   {
-   "id": "i42",
+   "id": "i25",
    "type": "intra-card",
    "card": "48883552221a",
    "context": "简述 onStart、onEach、onCompletion 几个核心生命周期操作符的作用。",
@@ -642,22 +387,7 @@
    "prompt": "「onEach」和「onCompletion」有什么区别？"
   },
   {
-   "id": "i43",
-   "type": "intra-card",
-   "card": "4eb03a43f797",
-   "context": "什么是 SharedFlow？简述它的三大核心配置参数（replay, extraBufferCapacity, onBufferOverflow）。",
-   "left": {
-    "label": "三大核心参数",
-    "text": "1. replay（重放数）：当一个新订阅者急匆匆赶来 collect 时，SharedFlow 会立刻将内存中缓存的最近 replay 个历史老数据打包重新发送给它，让它快速追赶进度。 2. extraBufferCapacity（额外缓冲区容量）：除了 replay 之外，在内存中额外开辟的无界/有界缓冲队列空间。 3. onBufferOverflow（背压溢出策略）：当缓冲区彻底被高频生产塞满时采取的果断策略："
-   },
-   "right": {
-    "label": "BufferOverflow.SUSPEND（默认）",
-    "text": "发送端挂起。"
-   },
-   "prompt": "「三大核心参数」和「BufferOverflow.SUSPEND（默认）」有什么区别？"
-  },
-  {
-   "id": "i44",
+   "id": "i26",
    "type": "intra-card",
    "card": "4eb03a43f797",
    "context": "什么是 SharedFlow？简述它的三大核心配置参数（replay, extraBufferCapacity, onBufferOverflow）。",
@@ -672,37 +402,22 @@
    "prompt": "「BufferOverflow.SUSPEND（默认）」和「BufferOverflow.DROP_OLDEST」有什么区别？"
   },
   {
-   "id": "i45",
+   "id": "i27",
    "type": "intra-card",
-   "card": "767687b45169",
-   "context": "如何将一个普通的冷流 Flow 优雅地升级转换成一个广播热流？",
+   "card": "4eb03a43f797",
+   "context": "什么是 SharedFlow？简述它的三大核心配置参数（replay, extraBufferCapacity, onBufferOverflow）。",
    "left": {
-    "label": "核心要素",
-    "text": "转换时必须传入三大件： 1. scope：热流赖以常驻生存的协程生命周期作用域。 2. started：极为关键的 热流启动/休眠策略（SharingStarted） 。 3. replay（针对 shareIn）：重放历史个数。"
+    "label": "BufferOverflow.DROP_OLDEST",
+    "text": "强行丢弃缓冲区里最老的那条数据，空出位置塞入新值。"
    },
    "right": {
-    "label": "示例",
-    "text": "val myHotFlow = myColdFlow.shareIn(viewModelScope, SharingStarted.WhileSubscribed(5000), replay = 1)。"
+    "label": "BufferOverflow.DROP_LATEST",
+    "text": "直接丢弃当前准备发进去的最新这条数据，确保老数据安稳。"
    },
-   "prompt": "「核心要素」和「示例」有什么区别？"
+   "prompt": "「BufferOverflow.DROP_OLDEST」和「BufferOverflow.DROP_LATEST」有什么区别？"
   },
   {
-   "id": "i46",
-   "type": "intra-card",
-   "card": "985c5eb637e9",
-   "context": "什么是 Flow 的“背压（Backpressure）”？Flow 是通过什么底层魔法天然解决背压问题的？",
-   "left": {
-    "label": "背压概念",
-    "text": "是指在响应式流中， 上游生产者的生产速度（emit 频率）远超下游消费者的消化速度（collect 执行耗时） ，导致大量数据在中间环节发生严重无休止堆积，引发内存暴涨甚至 ANR/崩溃。"
-   },
-   "right": {
-    "label": "魔法解决原理（基于挂起函数的隐式响应式拉取）",
-    "text": "标准 Flow 天然免疫、根本不存在传统意义上的背压崩溃问题！"
-   },
-   "prompt": "「背压概念」和「魔法解决原理（基于挂起函数的隐式响应式拉取）」有什么区别？"
-  },
-  {
-   "id": "i47",
+   "id": "i28",
    "type": "intra-card",
    "card": "67bab4f1d193",
    "context": "详细解释 suspendCancellableCoroutine 与 suspendCoroutine 的区别，为什么在商业工程中严禁使用后者？",
@@ -717,52 +432,7 @@
    "prompt": "「suspendCoroutine」和「suspendCancellableCoroutine」有什么区别？"
   },
   {
-   "id": "i48",
-   "type": "intra-card",
-   "card": "abefc9939b3e",
-   "context": "协程源码中的 SelectBuilderImpl 是如何做到让多个 Channel 触发争用且确保原子性胜利的？",
-   "left": {
-    "label": "争用与原子原理",
-    "text": "select 启动后，会以 完全无锁（Lock-Free）的 CAS 乐观锁自旋机制 ，同时向所有参与内卷的 Channel 注册自己的“意向监听节点”。"
-   },
-   "right": {
-    "label": "原子胜利",
-    "text": "一旦 CAS 修改成功，意味着 Channel A 获得了无可争议的绝对胜利。此时如果有另一个 Channel B 在微秒之后也送达了数据并尝试修改状态，由于状态已非 UNDECIDED，CAS 会直接宣告失败。随后，胜利的 Channel A 会触发对应的 select 分支恢复执行，而失败的 Channel B 对应的注册节点则会被框架干净地自动注销并默默丢弃。"
-   },
-   "prompt": "「争用与原子原理」和「原子胜利」有什么区别？"
-  },
-  {
-   "id": "i49",
-   "type": "intra-card",
-   "card": "1f75650a6a0f",
-   "context": "简述底层 CancellableContinuationImpl 在处理 resume 和 cancel 并发撞车时的双向状态保护。",
-   "left": {
-    "label": "在极端的分布式或高并发多线程环境下，极有可能发生",
-    "text": "线程 1 正在因为网络收到数据而对某个 Continuation 触发 resume()，而几乎在同一温标下，线程 2 因为用户疯狂点击退出页面而对该 Continuation 触发了 cancel()。"
-   },
-   "right": {
-    "label": "底层双向保护",
-    "text": "CancellableContinuationImpl 在内部依托一个名为 _state 的 Volatile 原子状态引用字段 。该状态有一条不可逆的严格单向状态转移生命树。"
-   },
-   "prompt": "「在极端的分布式或高并发多线程环境下，极有可能发生」和「底层双向保护」有什么区别？"
-  },
-  {
-   "id": "i50",
-   "type": "intra-card",
-   "card": "b4be7b55334e",
-   "context": "针对上述 86 题的后台浪费隐患，Jetpack 官方给出的终极、最安全、最标准的工程解决方案是什么？",
-   "left": {
-    "label": "终极正解姿势",
-    "text": "必须结合使用 repeatOnLifecycle 或者是 flowWithLifecycle 扩展高阶函数。"
-   },
-   "right": {
-    "label": "正确代码示范",
-    "text": "Kotlin lifecycleScope.launch { // 关键安全防线：指定只有当界面至少处于 STARTED（可见活跃）状态时才开闸放水 lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { myViewModel.flowData.collect { uiData -> // 刷新 UI 逻辑，绝对安全 } } }"
-   },
-   "prompt": "「终极正解姿势」和「正确代码示范」有什么区别？"
-  },
-  {
-   "id": "i51",
+   "id": "i29",
    "type": "intra-card",
    "card": "82a9eb007d81",
    "context": "简述 repeatOnLifecycle 和 launchWhenStarted 的核心区别。为什么后者会被官方无情废弃？",
@@ -777,37 +447,7 @@
    "prompt": "「launchWhenStarted（已废弃）」和「repeatOnLifecycle（强力接管）」有什么区别？"
   },
   {
-   "id": "i52",
-   "type": "intra-card",
-   "card": "ea23e20d3372",
-   "context": "详细解释如何在 Android 现代化打包测试中，利用 TestDispatcher 和 runTest 对包含挂起函数及 Flow 的 ViewModel 进行完美的同步化单元测试。",
-   "left": {
-    "label": "测试痛点",
-    "text": "由于 ViewModel 内部的网络请求默认跑在异步的 Dispatchers.Main（Handler）或 Dispatchers.IO 上，如果直接写常规单测，测试线程会一闪而过直接退出，导致根本抓不到任何异步数据断言（Assertion）。"
-   },
-   "right": {
-    "label": "现代化完美测试姿势",
-    "text": "必须引入 kotlinx-coroutines-test 测试专用标准库。"
-   },
-   "prompt": "「测试痛点」和「现代化完美测试姿势」有什么区别？"
-  },
-  {
-   "id": "i53",
-   "type": "intra-card",
-   "card": "d5f45b6c13b8",
-   "context": "如果在 Android 工程中使用了 Jetpack WorkManager 执行长周期的后台离线同步任务，如何与协程进行完美合体？",
-   "left": {
-    "label": "重构姿势",
-    "text": "在 CoroutineWorker 中，我们需要重写的核心核心方法是 suspend fun doWork(): Result （这是一个如假包换的标准挂起函数）。"
-   },
-   "right": {
-    "label": "优势契合",
-    "text": "你可以在 doWork() 内部尽情调用任何高频耗时的挂起网络请求或 Room 事务，完全不需要担心阻塞问题。而且，当系统因为电池电量不足、或者用户强行在系统后台杀掉该 Worker 任务导致 WorkManager 触发终止时，系统会自动向当前 doWork() 正在挂起的节点 投递一个标准的结构化 CancellationException 异常信号 。协程会立刻响应取消并干净释放，做到了长周期后台任务的完美高阶收拢。"
-   },
-   "prompt": "「重构姿势」和「优势契合」有什么区别？"
-  },
-  {
-   "id": "i54",
+   "id": "i30",
    "type": "intra-card",
    "card": "36a0fcaeab2c",
    "context": "详解 rememberCoroutineScope() 与 LaunchedEffect 在 Compose 副作用流控中的根本区别。",
@@ -822,7 +462,7 @@
    "prompt": "「LaunchedEffect」和「rememberCoroutineScope()」有什么区别？"
   },
   {
-   "id": "i55",
+   "id": "i31",
    "type": "intra-card",
    "card": "27859bb23fd0",
    "context": "在 Compose 页面中，如何将 ViewModel 传递过来的 StateFlow 状态热流，无缝且安全地转换成能让 Compose 界面重组刷新的 State 状态源？",
@@ -837,22 +477,7 @@
    "prompt": "「不安全写法（反模式）」和「顶级安全标准写法」有什么区别？"
   },
   {
-   "id": "i56",
-   "type": "intra-card",
-   "card": "f009f24e9793",
-   "context": "简述 Java 中继承、接口和装饰器模式的区别。",
-   "left": {
-    "label": "继承（Inheritance）",
-    "text": "建立 “Is-A”（是一个）的关系。子类自动拥有父类的属性和方法，核心目的是代码复用，属于强耦合。"
-   },
-   "right": {
-    "label": "接口（Interface）",
-    "text": "建立 “Like-A”（具备某种能力）的关系。它是一种完全抽象的契约或规范，只定义方法不实现逻辑，核心目的是解耦。"
-   },
-   "prompt": "「继承（Inheritance）」和「接口（Interface）」有什么区别？"
-  },
-  {
-   "id": "i57",
+   "id": "i32",
    "type": "intra-card",
    "card": "f009f24e9793",
    "context": "简述 Java 中继承、接口和装饰器模式的区别。",
@@ -867,22 +492,7 @@
    "prompt": "「接口（Interface）」和「装饰器模式（Decorator）」有什么区别？"
   },
   {
-   "id": "i58",
-   "type": "intra-card",
-   "card": "91921067813d",
-   "context": "JVM 的运行时数据区包含哪些部分？哪些是线程私有的？",
-   "left": {
-    "label": "包含五大部分",
-    "text": "程序计数器 、 Java虚拟机栈 、 本地方法栈 、 Java堆 、 方法区 （以及其中的运行时常量池）。"
-   },
-   "right": {
-    "label": "线程私有",
-    "text": "程序计数器、Java 虚拟机栈、本地方法栈。它们随线程创建而创建，随线程销毁而销毁。"
-   },
-   "prompt": "「包含五大部分」和「线程私有」有什么区别？"
-  },
-  {
-   "id": "i59",
+   "id": "i33",
    "type": "intra-card",
    "card": "91921067813d",
    "context": "JVM 的运行时数据区包含哪些部分？哪些是线程私有的？",
@@ -897,19 +507,409 @@
    "prompt": "「线程私有」和「线程共享」有什么区别？"
   },
   {
-   "id": "i60",
+   "id": "i34",
    "type": "intra-card",
    "card": "5ee5abf86599",
    "context": "什么是强引用、软引用、弱引用和虚引用？",
    "left": {
-    "label": "强引用（StrongReference）",
-    "text": "普通的正常对象引用，只要强引用存在，垃圾回收器永远不会回收该对象。"
+    "label": "弱引用（WeakReference）",
+    "text": "只要进行垃圾回收（GC），无论内存是否足够，都会被回收。Android 中常用于防止 Handler 等引起的内存泄漏。"
    },
    "right": {
-    "label": "软引用（SoftReference）",
-    "text": "有用但非必须的对象，在系统将要发生内存溢出（OOM）之前，会被回收。常用于缓存。"
+    "label": "虚引用（PhantomReference）",
+    "text": "不对对象生命周期产生任何影响，必须和引用队列（ReferenceQueue）联合使用，主要用于跟踪对象被垃圾回收的活动。"
    },
-   "prompt": "「强引用（StrongReference）」和「软引用（SoftReference）」有什么区别？"
+   "prompt": "「弱引用（WeakReference）」和「虚引用（PhantomReference）」有什么区别？"
+  },
+  {
+   "id": "i35",
+   "type": "intra-card",
+   "card": "4874fcff8dec",
+   "context": "深入理解 volatile 关键字的作用及原理。",
+   "left": {
+    "label": "可见性",
+    "text": "当一个线程修改了 volatile 变量的值，新值对于其他线程是立即成可见的。底层是通过在写操作后加入 Store 屏障，强行将本地内存刷新回主内存。"
+   },
+   "right": {
+    "label": "禁止指令重排序",
+    "text": "编译器和处理器在编译和执行字节码时为了提高性能可能会改变指令顺序，volatile 通过在生成字节码时插入内存屏障（Memory Barrier）来禁止这种优化。"
+   },
+   "prompt": "「可见性」和「禁止指令重排序」有什么区别？"
+  },
+  {
+   "id": "i36",
+   "type": "intra-card",
+   "card": "402e41608d7c",
+   "context": "线程池的核心参数有哪些？拒绝策略有哪些？",
+   "left": {
+    "label": "核心参数",
+    "text": "corePoolSize（核心线程数）、maximumPoolSize（最大线程数）、keepAliveTime（空闲线程存活时间）、unit（时间单位）、workQueue（任务等待队列）、threadFactory（线程工厂）、handler（拒绝策略）。"
+   },
+   "right": {
+    "label": "拒绝策略",
+    "text": "AbortPolicy（直接抛出异常，默认）、CallerRunsPolicy（用调用者所在的线程来执行任务）、DiscardOldestPolicy（丢弃队列中最靠前的任务并尝试再次提交）、DiscardPolicy（直接丢弃任务，不予处理）。"
+   },
+   "prompt": "「核心参数」和「拒绝策略」有什么区别？"
+  },
+  {
+   "id": "i37",
+   "type": "intra-card",
+   "card": "a222d69337d4",
+   "context": "简述 Java 垃圾回收（GC）中如何判断一个对象可以被回收？",
+   "left": {
+    "label": "引用计数法",
+    "text": "给对象添加一个引用计数器，每当有一个地方引用它时计数器加 1，引用失效时减 1。缺点是无法解决对象间循环引用的问题。"
+   },
+   "right": {
+    "label": "可达性分析算法（主流）",
+    "text": "从一系列被称为 “GC Roots” 的根对象开始向下搜索，搜索所走过的路径称为引用链。当一个对象到 GC Roots 没有任何引用链相连（即不可达）时，则证明此对象是不可用的，可以被回收。"
+   },
+   "prompt": "「引用计数法」和「可达性分析算法（主流）」有什么区别？"
+  },
+  {
+   "id": "i38",
+   "type": "intra-card",
+   "card": "c187de8a5905",
+   "context": "简述 JVM 常见的垃圾收集算法。",
+   "left": {
+    "label": "标记-清除算法（Mark-Sweep）",
+    "text": "分为标记和清除两个阶段。缺点是会产生大量不连续的内存碎片。"
+   },
+   "right": {
+    "label": "标记-复制算法（Copying）",
+    "text": "将可用内存按容量划分为大小相等的两块，每次只使用其中一块。发生 GC 时将存活对象复制到另一块，清空当前块。缺点是内存利用率低（通常只有 50%）。"
+   },
+   "prompt": "「标记-清除算法（Mark-Sweep）」和「标记-复制算法（Copying）」有什么区别？"
+  },
+  {
+   "id": "i39",
+   "type": "intra-card",
+   "card": "c187de8a5905",
+   "context": "简述 JVM 常见的垃圾收集算法。",
+   "left": {
+    "label": "标记-复制算法（Copying）",
+    "text": "将可用内存按容量划分为大小相等的两块，每次只使用其中一块。发生 GC 时将存活对象复制到另一块，清空当前块。缺点是内存利用率低（通常只有 50%）。"
+   },
+   "right": {
+    "label": "标记-整理算法（Mark-Compact）",
+    "text": "标记后让所有存活对象都向内存空间的一端移动，然后直接清理掉边界以外的内存。适合老年代。"
+   },
+   "prompt": "「标记-复制算法（Copying）」和「标记-整理算法（Mark-Compact）」有什么区别？"
+  },
+  {
+   "id": "i40",
+   "type": "intra-card",
+   "card": "553d6ed6e9d2",
+   "context": "简述 Java 中的异常体系。",
+   "left": {
+    "label": "Error",
+    "text": "严重问题，JVM 无法处理，如 OutOfMemoryError、StackOverflowError，程序不该试图用 catch 捕获。"
+   },
+   "right": {
+    "label": "Exception",
+    "text": "程序本身可以处理的异常。分为 运行时异常（RuntimeException / Unchecked） （如 NullPointerException，编译时不强制处理）和 编译时异常（Checked） （如 IOException，编译时强制要求必须 try-catch 或 throws 声明）。"
+   },
+   "prompt": "「Error」和「Exception」有什么区别？"
+  },
+  {
+   "id": "i41",
+   "type": "intra-card",
+   "card": "7c2fa421ae1b",
+   "context": "简述 Java 中的轻量级锁、偏向锁、重量级锁（锁升级）。",
+   "left": {
+    "label": "偏向锁",
+    "text": "同一线程反复获取锁时，消除同步，只需比对 Mark Word 中的线程 ID。"
+   },
+   "right": {
+    "label": "轻量级锁",
+    "text": "当出现多个线程竞争锁但没有竞争冲突时，通过 CAS 自旋来获取锁，避免线程阻塞。"
+   },
+   "prompt": "「偏向锁」和「轻量级锁」有什么区别？"
+  },
+  {
+   "id": "i42",
+   "type": "intra-card",
+   "card": "7c2fa421ae1b",
+   "context": "简述 Java 中的轻量级锁、偏向锁、重量级锁（锁升级）。",
+   "left": {
+    "label": "轻量级锁",
+    "text": "当出现多个线程竞争锁但没有竞争冲突时，通过 CAS 自旋来获取锁，避免线程阻塞。"
+   },
+   "right": {
+    "label": "重量级锁",
+    "text": "当自旋超过一定次数或多线程激烈竞争时，锁升级为重量级锁，底层通过操作系统的互斥量（Mutex）实现，未获取锁的线程会进入阻塞状态。"
+   },
+   "prompt": "「轻量级锁」和「重量级锁」有什么区别？"
+  },
+  {
+   "id": "i43",
+   "type": "intra-card",
+   "card": "4d45d494c6f6",
+   "context": "面向对象的设计原则有哪些（SOLID）？",
+   "left": {
+    "label": "S （单一职责原则）",
+    "text": "一个类应该只有一个引起它变化的原因。"
+   },
+   "right": {
+    "label": "O （开闭原则）",
+    "text": "对扩展开放，对修改关闭。"
+   },
+   "prompt": "「S （单一职责原则）」和「O （开闭原则）」有什么区别？"
+  },
+  {
+   "id": "i44",
+   "type": "intra-card",
+   "card": "4d45d494c6f6",
+   "context": "面向对象的设计原则有哪些（SOLID）？",
+   "left": {
+    "label": "O （开闭原则）",
+    "text": "对扩展开放，对修改关闭。"
+   },
+   "right": {
+    "label": "L （里氏替换原则）",
+    "text": "所有引用基类的地方必须能透明地使用其子类的对象。"
+   },
+   "prompt": "「O （开闭原则）」和「L （里氏替换原则）」有什么区别？"
+  },
+  {
+   "id": "i45",
+   "type": "intra-card",
+   "card": "d7be68230f78",
+   "context": "什么是“深拷贝”与“浅拷贝”？",
+   "left": {
+    "label": "浅拷贝",
+    "text": "只复制对象本身和对象内的基本数据类型变量，而对于对象内的引用类型变量，只复制了引用地址，新旧对象依然共享同一个子对象。"
+   },
+   "right": {
+    "label": "深拷贝",
+    "text": "不仅复制对象本身，还会递归地将对象内部持有的所有引用对象也完全复制一份，新旧对象彻底独立，互不影响。"
+   },
+   "prompt": "「浅拷贝」和「深拷贝」有什么区别？"
+  },
+  {
+   "id": "i46",
+   "type": "intra-card",
+   "card": "dedad95eb678",
+   "context": "简述乐观锁和悲观锁的区别。",
+   "left": {
+    "label": "悲观锁",
+    "text": "总是假设最坏的情况，认为每次拿数据别人都会修改，所以在整个数据处理过程中将数据锁定。如 synchronized、ReentrantLock。"
+   },
+   "right": {
+    "label": "乐观锁",
+    "text": "总是假设最好的情况，认为每次拿数据别人不会修改，但在更新时会判断此期间别人有没有去更新这个数据（通过版本号机制或 CAS）。适合读多写少的场景。"
+   },
+   "prompt": "「悲观锁」和「乐观锁」有什么区别？"
+  },
+  {
+   "id": "i47",
+   "type": "intra-card",
+   "card": "a611bc1b88ae",
+   "context": "简述 TCP 三次握手和四次挥手的过程及原因。",
+   "left": {
+    "label": "三次握手",
+    "text": "客户端发送 SYN，服务端返回 SYN+ACK，客户端再返回 ACK。 原因 ：为了确认双方的接收能力和发送能力都是正常的，初始化序列号。"
+   },
+   "right": {
+    "label": "四次挥手",
+    "text": "主动方发 FIN，被动方回 ACK（此时进入半关闭，被动方可能继续发数据），被动方数据发完后发 FIN，主动方回 ACK 并等待 2MSL 后关闭。 原因 ：因为 TCP 是全双工的，关闭时两个方向的连接必须单独关闭。"
+   },
+   "prompt": "「三次握手」和「四次挥手」有什么区别？"
+  },
+  {
+   "id": "i48",
+   "type": "intra-card",
+   "card": "226b5f0c9054",
+   "context": "简述 Android 消息机制（Handler、Looper、MessageQueue）的工作原理。",
+   "left": {
+    "label": "Message",
+    "text": "消息载体。"
+   },
+   "right": {
+    "label": "MessageQueue",
+    "text": "消息队列，底层是单链表，按时间顺序排列消息。"
+   },
+   "prompt": "「Message」和「MessageQueue」有什么区别？"
+  },
+  {
+   "id": "i49",
+   "type": "intra-card",
+   "card": "226b5f0c9054",
+   "context": "简述 Android 消息机制（Handler、Looper、MessageQueue）的工作原理。",
+   "left": {
+    "label": "MessageQueue",
+    "text": "消息队列，底层是单链表，按时间顺序排列消息。"
+   },
+   "right": {
+    "label": "Looper",
+    "text": "消息循环器。每个线程最多持有一个 Looper，它内部包含一个死循环（Looper.loop()），不断地从 MessageQueue 中取出消息（没有消息时通过 Linux 的 epoll 机制阻塞等待）。"
+   },
+   "prompt": "「MessageQueue」和「Looper」有什么区别？"
+  },
+  {
+   "id": "i50",
+   "type": "intra-card",
+   "card": "fb644aafbad6",
+   "context": "简述 Android 的四大组件及其作用。",
+   "left": {
+    "label": "Activity",
+    "text": "展现给用户的视觉界面，负责与用户进行直接交互。"
+   },
+   "right": {
+    "label": "Service",
+    "text": "无界面，在后台执行长期运行任务的组件。"
+   },
+   "prompt": "「Activity」和「Service」有什么区别？"
+  },
+  {
+   "id": "i51",
+   "type": "intra-card",
+   "card": "fb644aafbad6",
+   "context": "简述 Android 的四大组件及其作用。",
+   "left": {
+    "label": "Service",
+    "text": "无界面，在后台执行长期运行任务的组件。"
+   },
+   "right": {
+    "label": "BroadcastReceiver",
+    "text": "广播接收器，用于接收并响应来自系统或其他应用发布的全局广播消息。"
+   },
+   "prompt": "「Service」和「BroadcastReceiver」有什么区别？"
+  },
+  {
+   "id": "i52",
+   "type": "intra-card",
+   "card": "5ebf79d106ef",
+   "context": "简述 Serializable 和 Parcelable 的区别，Android 中应该如何选择？",
+   "left": {
+    "label": "Serializable",
+    "text": "Java 原生提供的序列化接口，基于空标记。它在序列化时涉及大量的 I/O 操作 ，并使用 反射 机制产生大量的临时对象，效率较低，但使用极其简单。通常用于磁盘存储或网络传输。"
+   },
+   "right": {
+    "label": "Parcelable",
+    "text": "Android 独有的高效序列化接口。它将对象直接在 内存 中进行拆分和组装，效率极高，没有反射开销。通常用于 Android 进程间通信（IPC）、Intent 传值。缺点是编写代码稍显冗长。"
+   },
+   "prompt": "「Serializable」和「Parcelable」有什么区别？"
+  },
+  {
+   "id": "i53",
+   "type": "intra-card",
+   "card": "1e7b8170ea48",
+   "context": "什么是 MeasureSpec？它有哪三种模式？",
+   "left": {
+    "label": "EXACTLY",
+    "text": "精确模式。当控件的 layout_width 或 layout_height 指定为具体数值（如 100dp）或 match_parent 时触发。"
+   },
+   "right": {
+    "label": "AT_MOST",
+    "text": "最大值模式。对应 wrap_content，子 View 的大小不能超过父容器允许的最大剩余空间。"
+   },
+   "prompt": "「EXACTLY」和「AT_MOST」有什么区别？"
+  },
+  {
+   "id": "i54",
+   "type": "intra-card",
+   "card": "1e7b8170ea48",
+   "context": "什么是 MeasureSpec？它有哪三种模式？",
+   "left": {
+    "label": "AT_MOST",
+    "text": "最大值模式。对应 wrap_content，子 View 的大小不能超过父容器允许的最大剩余空间。"
+   },
+   "right": {
+    "label": "UNSPECIFIED",
+    "text": "未指定模式。父容器不对子 View 做任何大小限制，通常用于系统内部、ListView 或 RecyclerView 内部。"
+   },
+   "prompt": "「AT_MOST」和「UNSPECIFIED」有什么区别？"
+  },
+  {
+   "id": "i55",
+   "type": "intra-card",
+   "card": "f11517f8a089",
+   "context": "简述 Android 广播（Broadcast）的两种注册方式及区别。",
+   "left": {
+    "label": "静态注册",
+    "text": "在 AndroidManifest.xml 中配置。其特点是即使应用处于关闭未启动状态，只要系统发布了匹配的广播，应用也会被自动唤醒并接收。适合接收一些系统全局通知（如开机广播）。"
+   },
+   "right": {
+    "label": "动态注册",
+    "text": "在代码中通过 context.registerReceiver() 显式注册。它的生命周期严格依附于绑定的组件（如 Activity），在组件销毁时 必须 调用 unregisterReceiver() 解绑，否则会导致严重的内存泄漏。其安全性和灵活性高于静态注册。"
+   },
+   "prompt": "「静态注册」和「动态注册」有什么区别？"
+  },
+  {
+   "id": "i56",
+   "type": "intra-card",
+   "card": "ce35af7a6526",
+   "context": "简述 Android 动画的三种分类。",
+   "left": {
+    "label": "补间动画（Tween Animation）",
+    "text": "对 View 进行旋转、平移、缩放、透明度变化。它 只改变了 View 的视觉绘制效果，并没有真正改变 View 的属性坐标 （例如平移后的 View 其点击事件还在原位）。"
+   },
+   "right": {
+    "label": "逐帧动画（Frame Animation）",
+    "text": "将一系列图片按顺序快速播放，类似放电影。如果图片大而多，极易引发 OOM。"
+   },
+   "prompt": "「补间动画（Tween Animation）」和「逐帧动画（Frame Animation）」有什么区别？"
+  },
+  {
+   "id": "i57",
+   "type": "intra-card",
+   "card": "f0be1c2a4966",
+   "context": "简述 经典的架构模式 MVC、MVP 和 MVVM 的本质区别。",
+   "left": {
+    "label": "MVC",
+    "text": "View 接收用户操作传给 Controller，Controller 修改 Model，Model 改变后 直接通知 View 更新。各层之间交叉依赖，导致 Activity 往往充当了 Controller 又充当了 View，代码臃肿。"
+   },
+   "right": {
+    "label": "MVP",
+    "text": "切断了 View 与 Model 的直接联系。通过引入 Presenter（主持人） ，View 和 Presenter 之间通过 定义明确的双向接口契约 进行通信。虽然解耦彻底，但会导致产生海量的接口文件，且 Presenter 容易持有 View 产生内存泄漏。"
+   },
+   "prompt": "「MVC」和「MVP」有什么区别？"
+  },
+  {
+   "id": "i58",
+   "type": "intra-card",
+   "card": "f0be1c2a4966",
+   "context": "简述 经典的架构模式 MVC、MVP 和 MVVM 的本质区别。",
+   "left": {
+    "label": "MVP",
+    "text": "切断了 View 与 Model 的直接联系。通过引入 Presenter（主持人） ，View 和 Presenter 之间通过 定义明确的双向接口契约 进行通信。虽然解耦彻底，但会导致产生海量的接口文件，且 Presenter 容易持有 View 产生内存泄漏。"
+   },
+   "right": {
+    "label": "MVVM",
+    "text": "核心是 ViewModel 。采用 数据双向绑定（Data Binding）或响应式状态流（LiveData/Flow） 。当 Model 的数据改变时，View 会通过观察者机制 自动双向更新 ，无需开发者手动编写繁琐的 UI 刷新代码（如 setText），实现了真正的声明式数据驱动。"
+   },
+   "prompt": "「MVP」和「MVVM」有什么区别？"
+  },
+  {
+   "id": "i59",
+   "type": "intra-card",
+   "card": "1265d4bc816f",
+   "context": "什么是 JVM 的“双亲委派机制”？它有什么好处？在 Android 中有什么变形？",
+   "left": {
+    "label": "机制",
+    "text": "当一个类加载器收到类加载请求时，它首先不会自己去尝试加载这个类，而是把这个请求委派给父类加载器去完成，只有当父类加载器反馈自己无法完成这个加载请求时，子加载器才会尝试自己去加载。"
+   },
+   "right": {
+    "label": "Android 中的变形",
+    "text": "Android 采用的是 PathClassLoader 和 DexClassLoader（继承自 BaseDexClassLoader）。虽然也遵循双亲委派，但其加载的是 .dex 文件而非 .class ；另外在一些热修复和插件化框架中，会通过 Hook 或重写 loadClass 破坏双亲委派，从而优先加载修复后的本地类。"
+   },
+   "prompt": "「机制」和「Android 中的变形」有什么区别？"
+  },
+  {
+   "id": "i60",
+   "type": "intra-card",
+   "card": "7d2f87aa59db",
+   "context": "Java 中的垃圾回收算法有哪些？简述 G1 收集器。",
+   "left": {
+    "label": "基础算法",
+    "text": "标记-清除算法（Mark-Sweep）、标记-复制算法（Copying）、标记-整理算法（Mark-Compact）、分代收集算法。"
+   },
+   "right": {
+    "label": "G1（Garbage-First）收集器",
+    "text": "面向服务端应用的垃圾收集器。它将整个 Java 堆划分成多个大小相等的独立区域（Region），保留了新生代和老年代的概念，但它们在空间上不再连续。G1 的核心特点是 可预测的停顿时间模型 。它会跟踪各个 Region 里面的垃圾堆积价值，在后台维护一个优先列表，每次根据允许的收集时间，优先回收价值最大的 Region（这也是其名字的由来）。"
+   },
+   "prompt": "「基础算法」和「G1（Garbage-First）收集器」有什么区别？"
   }
  ]
 }

@@ -979,10 +979,9 @@ def build_deck(plan: dict, spec: DeckSpec) -> DeckData:
         if ctype == "contrast":
             keys = [str(item.get("key")) for item in entry.get("sources") or []]
             ordered = list(dict.fromkeys(keys))
-            base = "|".join(ordered)
-            number = seq.get(("对比题", base), 0)
-            seq[("对比题", base)] = number + 1
-            key = derive_key(spec.name, "对比题", base, number)
+            # 用「源卡串 + 题干」做基座：候选增删时，保留下来的对比题 key 不漂移。
+            base = "|".join(ordered) + "|" + str(entry.get("q") or "")
+            key = derive_key(spec.name, "对比题", base, 0)
             tags = ["derived:contrast", "derived-from:" + ",".join(ordered)]
             if entry.get("kind"):
                 tags.append(f"kind:{entry['kind']}")
