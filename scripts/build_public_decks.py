@@ -27,6 +27,7 @@ PUBLIC_DECKS = (
         "name": "Android面试",
         "out": "Android.apkg",
         "contrast": "data/Android/contrast.json",
+        "derived": True,
     },
     {
         "key": "mqtt",
@@ -79,6 +80,38 @@ def _append_contrast(deck_dir: Path, pairs: Path, repo_root: Path) -> int:
         return len(cards)
 
 
+def _append_derived(deck_dir: Path, repo_root: Path, options: int = 4) -> int:
+    """把选择题/填空题派生分区并进牌组目录（与知识卡同包，独立子牌组）。"""
+    with tempfile.TemporaryDirectory(prefix="public-derived-") as tmp:
+        plan = Path(tmp) / "plan_derive.json"
+        compiled = Path(tmp) / "derived_deck"
+        _run_cli(
+            ["derive", "plan", "--deck", str(deck_dir), "--out", str(plan), "--options", str(options)],
+            repo_root,
+        )
+        _run_cli(["derive", "check", str(plan), "--deck", str(deck_dir)], repo_root)
+        _run_cli(
+            ["derive", "compile", str(plan), "--deck", str(deck_dir), "--out", str(compiled)],
+            repo_root,
+        )
+        files = sorted((compiled / "cards").glob("*.json"))
+        if not files:
+            raise RuntimeError(f"派生编译没有产出卡片: {compiled}")
+        cards_dir = deck_dir / "cards"
+        cards_dir.mkdir(parents=True, exist_ok=True)
+        indexes = [int(p.stem) for p in cards_dir.glob("*.json") if p.stem.isdigit()]
+        next_index = max(indexes, default=0)
+        total = 0
+        for item in files:
+            payload = json.loads(item.read_text(encoding="utf-8"))
+            next_index += 1
+            (cards_dir / f"{next_index:02d}.json").write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+            )
+            total += len(payload.get("cards") or [])
+        return total
+
+
 def build_all(out_dir: Path, repo_root: Path = ROOT) -> dict[str, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     built: dict[str, Path] = {}
@@ -100,6 +133,8 @@ def build_all(out_dir: Path, repo_root: Path = ROOT) -> dict[str, Path]:
             )
             if deck.get("contrast"):
                 _append_contrast(deck_dir, repo_root / deck["contrast"], repo_root)
+            if deck.get("derived"):
+                _append_derived(deck_dir, repo_root)
             out_path = out_dir / deck["out"]
             _run_cli(
                 ["build", str(deck_dir), "--out", str(out_path)],

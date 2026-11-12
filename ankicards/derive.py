@@ -38,6 +38,7 @@ SKIP_REASONS = (
     "image_card",
     "duplicate",
     "code_snippet",
+    "derived_card",
 )
 
 CANDIDATES_VERSION = 1
@@ -498,6 +499,11 @@ def build_plan(spec: DeckSpec, ingest: IngestData | None,
              "skipped": {}, "sources": len(index)}
     for source in index.values():
         if opts.sections and source.section not in opts.sections:
+            continue
+        tags = [t for t in (source.card.get("tags") or []) if isinstance(t, str)]
+        if any(t.startswith("derived:") for t in tags):
+            # 派生题不再二次派生：否则会从对比题里再出一道「选择/填空」。
+            skipped.append({"source_key": source.key, "reason": "derived_card"})
             continue
         cloze, reason = _cloze_entries(source, opts)
         if cloze:
