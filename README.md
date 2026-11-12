@@ -5,6 +5,7 @@
 把 PDF / DOCX / TXT / HTML / EPUB 变成**可溯源**的 Anki 卡组：每张卡都带原文定位，答案里的关键信息必须能在引用里逐字找到。仓库同时发布公开牌组，并提供从已发布牌组**派生填空题 / 选择题 / 对比题**的工具链。
 
 - 公开牌组下载：[Releases](../../releases)
+- 宣传页（做得更细的介绍）：<https://iamkings.github.io/anki_card_builder/>
 - 工具链入口：`python3 -m ankicards`（`--help` 是命令真值）
 - 流程与判断标准：[`skills/anki-card-builder/SKILL.md`](skills/anki-card-builder/SKILL.md)
 - 失败模式与预检阈值：[`docs/extraction-policy.md`](docs/extraction-policy.md)
