@@ -35,6 +35,7 @@ PUBLIC_DECKS = (
         "adapter": "mqtt-md",
         "name": "MQTT协议",
         "out": "MQTT.apkg",
+        "derived": True,
     },
 )
 

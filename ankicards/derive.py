@@ -39,6 +39,7 @@ SKIP_REASONS = (
     "duplicate",
     "code_snippet",
     "derived_card",
+    "exam_source",
 )
 
 CANDIDATES_VERSION = 1
@@ -274,6 +275,17 @@ class DeriveOptions:
             raise CardError(f"--show-source 必须是 {'/'.join(SOURCE_MODES)}")
 
 
+_DANGLING_TAIL = re.compile(r"(?:例如|比如|包括|分为|如下|即|如)$")
+_EXAM_OPTION = re.compile(r"<br\s*/?>\s*[A-E][.、]")
+_EXAM_ANSWER = re.compile(r"正确答案[：:]")
+
+
+def _is_exam_source(source: SourceCard) -> bool:
+    """题库导出格式的卡：选项嵌在题干里，答案带「正确答案：」。"""
+    return bool(_EXAM_OPTION.search(source.card.get("q", "") or "")
+                or _EXAM_ANSWER.search(source.card.get("a", "") or ""))
+
+
 def _too_similar(left: str, right: str) -> bool:
     from difflib import SequenceMatcher
 
@@ -327,6 +339,15 @@ def _cloze_entries(source: SourceCard, opts: DeriveOptions) -> tuple[list[dict],
         return [], "no_cloze_span"
     entries: list[dict] = []
     for _, _, span in spans[: opts.cloze_per_card]:
+        span = span.strip()
+        if "`" in span or _DANGLING_TAIL.search(span):
+            continue
+        if normalize(span) in normalize(source.deck):
+            # 「MQTT」「Android」这类牌组主题词，挖空等于白送。
+            continue
+        if normalize(span) in source.q:
+            # 挖空词已经在问题里出现过，等于把答案印在正面。
+            continue
         excerpt = pick_excerpt(answer, MAX_CLOZE_TEXT)
         if excerpt is None or span not in excerpt:
             for item in clauses(answer):
@@ -499,6 +520,11 @@ def build_plan(spec: DeckSpec, ingest: IngestData | None,
              "skipped": {}, "sources": len(index)}
     for source in index.values():
         if opts.sections and source.section not in opts.sections:
+            continue
+        if _is_exam_source(source):
+            # 题库导出格式：q 里内嵌 <br>A./B. 选项、a 以「正确答案：X.」开头。
+            # 同一知识点通常已有一张干净卡，派生只认干净卡。
+            skipped.append({"source_key": source.key, "reason": "exam_source"})
             continue
         tags = [t for t in (source.card.get("tags") or []) if isinstance(t, str)]
         if any(t.startswith("derived:") for t in tags):

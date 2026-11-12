@@ -2,7 +2,7 @@
 
 # Anki 卡组生成器
 
-> 多领域知识 Anki 卡片生成 — Android 面试 2381 张（1270 知识 + 402 填空 + 651 选择 + 58 对比）+ MQTT 协议 200 张。
+> 多领域知识 Anki 卡片生成 — Android 面试 2305 张（1270 知识 + 326 填空 + 651 选择 + 58 对比）+ MQTT 协议 308 张（200 知识 + 30 填空 + 78 选择）。
 > 工具链：`ingest → 可卡性预检 → plan（逐字 quote）→ compile → check → build → verify`。
 
 ## 0.4.0 有什么
@@ -73,10 +73,10 @@ python3 -m ankicards derive compile plan_derive.json --deck dist/Android面试 -
 | Android面试::Java | 196 张 |
 | Android面试::高频题集 | 125 张 |
 | Android面试::阿里巴巴真题 | 84 张 |
-| Android面试::填空 | 402 张 |
+| Android面试::填空 | 326 张 |
 | Android面试::选择题 | 651 张 |
 | Android面试::对比题 | 58 张 |
-| **总计** | **2381 张** |
+| **总计** | **2305 张** |
 
 ### 导入提示
 
@@ -375,7 +375,7 @@ python3 -m ankicards derive check plan_contrast.json --deck dist/Android面试
 python3 -m ankicards derive compile plan_contrast.json --deck dist/Android面试 --out dist/Android-对比
 ```
 
-实测 Android：1270 张知识卡 + 402 填空 + 651 选择 + 58 对比通过 build 与 `verify`（结构检查通过，无重复 guid）。
+实测 Android：1270 知识 + 326 填空 + 651 选择 + 58 对比；MQTT：200 知识 + 30 填空 + 78 选择，均通过 build 与 `verify`（结构检查通过，无重复 guid）。
 - 模型交回的候选必须长度 2–60 字、不与正确项/已有选项重复，否则 merge 直接拒收并打印原因。
 - 候选长度与正确项相差不要超过 50%（packet 里带 `correct_chars`）；`derive check` 发现选项
   最长/最短超过 2 倍时会给「长度可能泄漏答案」提示。
@@ -452,7 +452,7 @@ python3 -m ankicards check  /tmp/web-deck --ingest .work/ingest/example_com-arti
 
 | 适配器 | 输入 | 说明 |
 |------|------|------|
-| `android-md` | MD 题库目录 | 复用 `src/parsers` + 质量过滤 + 去重；重建 2381 张（1270 知识 + 402 填空 + 651 选择 + 58 对比）、8 个子牌组；guid/模型/牌组身份由 `tests/golden/public_decks.json` 校验 |
+| `android-md` | MD 题库目录 | 复用 `src/parsers` + 质量过滤 + 去重；重建 2305 张（1270 知识 + 326 填空 + 651 选择 + 58 对比）、8 个子牌组；guid/模型/牌组身份由 `tests/golden/public_decks.json` 校验 |
 | `mqtt-md` | MQTT 知识点 MD | 每个知识点生成一问一答 + 一道四选一；源数据在 `data/MQTT/`，可直接复现 |
 | `docx-points` | 单个 DOCX | 标题→子牌组；`1. **关键词**：解释` 段落、至少两列的表格行→问答；`source` 写 `para:N`/`table:T/rR`；自动编号（`numPr`）不读取，会提示改为手写编号；首行只有“首格+第二格都像表头”时才跳过 |
 | `txt-points` | 单个 TXT | 标题（`# 标题` / `一、标题`）→子牌组；`1. **关键词**：解释` 或 `1. 关键词：解释`→问答；`source` 写 `line:N`；只生成问答，不生成四选一 |

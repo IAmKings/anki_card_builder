@@ -23,9 +23,10 @@ class PublicDeckGoldenTest(unittest.TestCase):
         payload = json.loads(GOLDEN.read_text(encoding="utf-8"))
         self.assertEqual(payload["schema"], 1)
         self.assertEqual(set(payload["decks"]), {"android", "mqtt"})
-        # 1270 知识卡 + 58 对比题 + 402 填空 + 651 选择（derive 生成，独立子牌组）
-        self.assertEqual(payload["decks"]["android"]["notes"], 2381)
-        self.assertEqual(payload["decks"]["mqtt"]["notes"], 200)
+        # Android：1270 知识 + 326 填空 + 651 选择 + 58 对比
+        self.assertEqual(payload["decks"]["android"]["notes"], 2305)
+        # MQTT：200 知识 + 30 填空 + 78 选择
+        self.assertEqual(payload["decks"]["mqtt"]["notes"], 308)
 
     @unittest.skipUnless(
         os.environ.get("RUN_PUBLIC_DECK_IDENTITY") == "1",
