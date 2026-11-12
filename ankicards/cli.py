@@ -339,6 +339,7 @@ def cmd_derive_plan(args) -> int:
         cloze_limit=args.cloze_limit,
         choice_limit=args.choice_limit,
         show_source=args.show_source,
+        strict=getattr(args, "strict", False),
     )
     seeds = load_seeds(args.seeds) if getattr(args, "seeds", None) else None
     plan = build_plan(spec, ingest, opts, seeds=seeds)
@@ -703,6 +704,8 @@ def main(argv: list[str] | None = None) -> int:
     p_derive_plan.add_argument("--show-source", choices=["short", "full", "off"], default="short",
                                help="选择题背面附源卡问题的形式（默认截断 80 字）")
     p_derive_plan.add_argument("--seeds", help="semantic_map.py 产出的 seeds.json；用语义邻居当干扰项池")
+    p_derive_plan.add_argument("--strict", action="store_true",
+                               help="严格模式：正确项必须锚定题干实体，多问号/碎片段直接跳过（产量低、正确率高）")
     p_derive_plan.add_argument("--dry-run", action="store_true", help="只打印资格统计，不写文件")
     p_derive_plan.set_defaults(func=cmd_derive_plan)
 

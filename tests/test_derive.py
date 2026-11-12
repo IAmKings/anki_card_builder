@@ -498,3 +498,46 @@ class ContrastTest(unittest.TestCase):
                                 "right": {"label": "b", "text": "OOM 前回收"}}]}
             self.assertEqual(build_contrast_plan(pairs, spec)["cards"], [])
 
+
+
+
+class StrictGateTest(unittest.TestCase):
+    """--strict：产量换正确率，默认关闭；只收窄，不新增。"""
+
+    CARDS = [
+        {"type": "qa", "q": "这条产品线怎么排？", "a": "核心 系列 传承 工艺 特色 机芯 2018 年 发布"},
+        {"type": "qa", "q": "哪一年成立？", "a": "江诗丹顿于 1755 年在日内瓦成立。"},
+        {"type": "qa", "q": "HashMap 的默认初始容量是多少？", "a": "默认初始容量是 16 个桶，负载因子 0.75。"},
+    ]
+
+    def _plan(self, cards, strict):
+        with TemporaryDirectory() as tmp:
+            spec = load_spec(write_deck(Path(tmp) / "deck", cards))
+            return build_plan(spec, None, DeriveOptions(strict=strict))
+
+    @staticmethod
+    def _keys(plan):
+        return {
+            (c.get("type"), c.get("source_key"), c.get("stem") or c.get("text"))
+            for c in plan["cards"]
+        }
+
+    def test_strict_defaults_off(self):
+        self.assertFalse(DeriveOptions().strict)
+        self.assertTrue(DeriveOptions(strict=True).strict)
+
+    def test_strict_skips_column_dump(self):
+        loose = self._plan(self.CARDS, strict=False)
+        tight = self._plan(self.CARDS, strict=True)
+        self.assertTrue(any("核心 系列" in (c.get("text") or "") for c in loose["cards"]))
+        self.assertFalse(any("核心 系列" in (c.get("text") or "") for c in tight["cards"]))
+
+    def test_strict_only_narrows(self):
+        loose = self._plan(self.CARDS, strict=False)
+        tight = self._plan(self.CARDS, strict=True)
+        self.assertLessEqual(len(tight["cards"]), len(loose["cards"]))
+        self.assertTrue(self._keys(tight) <= self._keys(loose))
+        self.assertTrue(all(s["reason"] in {
+            "answer_too_long", "answer_too_short", "no_cloze_span", "not_enough_distractors",
+            "ambiguous_answer", "image_card", "duplicate", "code_snippet",
+        } for s in tight["skipped"]))

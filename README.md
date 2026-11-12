@@ -39,6 +39,13 @@ python3 -m ankicards derive compile plan_derive.json --deck dist/Android面试 -
 源牌组只读；正确项与挖空都是源答案里的逐字片段，代码块/模板/压平表格整卡跳过。
 细节与参数见下文「派生题：填空题与选择题」。
 
+私人资料（手册、培训讲义）可以再加一层严格模式：正确项必须锚定题干里的数字/专名，
+多问号、PDF 碎片流、纯数字掩码直接跳过——产量低、正确率高，默认关闭，不影响公共牌组。
+
+```bash
+python3 -m ankicards derive plan --deck "data/江斯丹顿" --strict --out plan_derive.json
+```
+
 ## 快速开始
 
 ### 1. 下载卡组

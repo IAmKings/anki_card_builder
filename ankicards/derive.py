@@ -132,6 +132,23 @@ def span_candidates(text: str) -> list[tuple[int, int, str]]:
     return found
 
 
+def _stem_tokens(question: str) -> list[str]:
+    """问题里可用来锚定答案的硬 token：数字、ASCII 专名（3750、D-G、Heures）。"""
+    found = re.findall(r"[A-Za-z][A-Za-z0-9'\-]{2,}|\d{2,}", question or "")
+    return [tok.lower() for tok in found
+            if not re.fullmatch(r"p\d+", tok, re.I)
+            and (any(ch.isdigit() for ch in tok) or tok[0].isupper())]
+
+
+def _looks_like_dump(text: str) -> bool:
+    """PDF 多栏/表格被压平后的碎片流：空格隔开的短片段过多。"""
+    parts = [part for part in text.split(" ") if part]
+    if len(parts) < 5:
+        return False
+    short = sum(1 for part in parts if len(part) <= 10)
+    return short / len(parts) >= 0.7
+
+
 def _looks_like_code(text: str) -> bool:
     """代码块、模板占位、Markdown 表格压平后的一行——这些不是可背的句子。"""
     return any(marker in text for marker in CODE_MARKERS)
@@ -260,6 +277,7 @@ class DeriveOptions:
     cloze_limit: int = 0
     choice_limit: int = 0
     show_source: str = "short"
+    strict: bool = False
 
     def check(self) -> None:
         if not (3 <= self.options <= 5):
@@ -356,6 +374,9 @@ def _cloze_entries(source: SourceCard, opts: DeriveOptions) -> tuple[list[dict],
         span = span.strip()
         if "`" in span or _DANGLING_TAIL.search(span):
             continue
+        if opts.strict and re.fullmatch(r"[A-Z]{1,3}", span):
+            # LES CABOTIERS 只挖 LES，品牌名被劈开。
+            continue
         if normalize(span) in normalize(source.deck):
             # 「MQTT」「Android」这类牌组主题词，挖空等于白送。
             continue
@@ -374,6 +395,13 @@ def _cloze_entries(source: SourceCard, opts: DeriveOptions) -> tuple[list[dict],
             continue
         if _looks_like_code(excerpt) or _looks_like_code(span):
             continue
+        if opts.strict and _looks_like_dump(excerpt):
+            continue
+        if opts.strict:
+            tokens = _stem_tokens(source.q)
+            if tokens and not any(tok in excerpt.lower() for tok in tokens):
+                # 问 3750 却挖了同一段答案里 57260 的数字，答非所问。
+                continue
         if _cjk_count(excerpt) < MIN_CJK_CHARS or not _span_ok(excerpt, span):
             continue
         if excerpt.count(span) != 1:
@@ -402,7 +430,24 @@ def _choice_entry(source: SourceCard, index: dict[str, SourceCard],
     answer = source.answer
     if len(answer) < MIN_ANSWER_CHARS:
         return None, "answer_too_short"
-    correct = pick_excerpt(answer, opts.max_option_chars)
+    if opts.strict and source.q.count("？") + source.q.count("?") > 1:
+        # 一个题干里塞两个问号，选项只能对上一个。
+        return None, "ambiguous_answer"
+    correct = None
+    if opts.strict:
+        tokens = _stem_tokens(source.q)
+        # 问题问的是 3750，就不能拿同一段答案里讲 57260 的句子当正确项。
+        for item in clauses(answer) if tokens else ():
+            text = item.strip()
+            if (MIN_OPTION_CHARS <= len(text) <= opts.max_option_chars
+                    and any(tok in text.lower() for tok in tokens)):
+                correct = text
+                break
+        if tokens and correct is None:
+            # 题干点名了实体，但答案里找不到对应句子：宁可不出题，也不标记错的正确项。
+            return None, "ambiguous_answer"
+    if correct is None:
+        correct = pick_excerpt(answer, opts.max_option_chars)
     if correct is None:
         return None, "code_snippet"
     if _looks_like_code(correct) or _cjk_count(correct) < MIN_CJK_CHARS:
@@ -466,7 +511,10 @@ def _choice_entry(source: SourceCard, index: dict[str, SourceCard],
             band.sort(key=lambda item: (-item[2], item[0], item[1], item[3], item[4]))
             return band
 
-        ranked.sort(key=lambda item: (-item[2], item[0], item[1], item[3], item[4]))
+        if opts.strict:
+            ranked.sort(key=lambda item: (item[0], -item[2], item[1], item[3], item[4]))
+        else:
+            ranked.sort(key=lambda item: (-item[2], item[0], item[1], item[3], item[4]))
         shortlist = (ordered(0.7, 1.5) or ordered(0.5, 2.0)
                      or [item for item in ranked
                          if len(item[6]) / max(1, len(correct)) <= 2.0]
