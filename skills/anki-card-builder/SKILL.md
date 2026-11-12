@@ -1,6 +1,6 @@
 ---
 name: anki-card-builder
-description: 把文本型 PDF、DOCX、TXT、EPUB、静态 HTML 或结构化 Markdown 学习资料做成可导入 Anki 的 .apkg：ingest → 可卡性预检 → plan 抽取（每卡逐字 quote 校验）→ check → build → verify。当用户要求做卡组、把书/手册/讲义/小说做成本地 Anki 卡、重打包或增量更新已有卡组、排查 .apkg 导入/重复卡/溯源问题时使用；不适用于扫描件 OCR、需要登录或 JS 渲染的网页，也不承诺把任意散文零判断地自动抽成卡。
+description: 把文本型 PDF、DOCX、TXT、EPUB、静态 HTML 或结构化 Markdown 学习资料做成可导入 Anki 的 .apkg：ingest → 可卡性预检 → plan 抽取（每卡逐字 quote 校验）→ check → build → verify。当用户要求做卡组、把书/手册/讲义/小说做成本地 Anki 卡、重打包或增量更新已有卡组、从已有牌组派生填空题/选择题/对比题、排查 .apkg 导入/重复卡/溯源问题时使用；不适用于扫描件 OCR、需要登录或 JS 渲染的网页，也不承诺把任意散文零判断地自动抽成卡。
 ---
 
 # Anki 卡组构建
@@ -118,7 +118,8 @@ PDF/DOCX/TXT/Web/MD 只是入口不同，最后都汇入同一个 `DeckSpec` 和
    ```
 
 5. 所有命令从仓库根目录运行；若 agent 的工作目录不同，先 `cd` 到仓库根目录，或把仓库根加入 `PYTHONPATH`。
-6. 公开复现材料在 `data/Android/`、`data/MQTT/`；非公开材料只放本地目录并加入本机忽略规则，不提交、不发布。
+6. 开工前先自检：`python3 -m ankicards --version` 与 `python3 -m ankicards --help`；命令与参数以 `--help` 为准，本文只写流程与判断。
+7. 公开复现材料在 `data/Android/`、`data/MQTT/`；非公开材料只放本地目录并加入本机忽略规则，不提交、不发布。
 
 ## 先选路径
 
@@ -128,7 +129,7 @@ PDF/DOCX/TXT/Web/MD 只是入口不同，最后都汇入同一个 `DeckSpec` 和
 | DOCX（标题 + 编号点/表格） | `ingest` 出定位 → `import --adapter docx-points [--ingest 清单]` 或手写 cards | `ingest` → `import` → `check` → `build` |
 | TXT（标题 + 编号点） | `ingest` 出行号 → `import --adapter txt-points [--ingest 清单]` 或手写 cards | `ingest` → `import` → `check` → `build` |
 | 静态 Web（标题 + 编号点） | `ingest` 出块号 → `import --adapter web-points [--ingest 清单]`（本地 HTML 或 manifest）或手写 cards | `ingest` → `import` → `check` → `build` |
-| 散文 / 手册 / 讲义（无编号点） | `ingest` 出定位 → 逐条写 cards；**不要**套 `*-points` | `ingest` → 写 cards → `check` → `build` |
+| 散文 / 手册 / 讲义（无编号点） | `ingest` 出定位 → 写 `plan.json` → 编译；**不要**套 `*-points` | `ingest` → `plan check` → `plan compile` → `check` → `build` |
 | 结构化 Markdown 题库 | `import --adapter android-md` 或 `mqtt-md` | `import` → `check` → `build` |
 | 已有 cards JSON | 直接校验/重打包 | `check` → `build` → `verify` |
 | 图片题 | `crops.json` 定裁图框，构建必须给 `--pdf` | `check/build --pdf --ingest` |
@@ -195,13 +196,9 @@ PDF 会先按行拆再算，否则一页上千字会把比例稀释成「编号�
   python3 -m ankicards plan check  plan.json --ingest .work/ingest/xxx.json --min-coverage 0.9 [--density essay]
   python3 -m ankicards plan compile plan.json --out <deck> --ingest .work/ingest/xxx.json
   python3 -m ankicards plan diff    plan.json --deck <deck>   # 这次会新增/删除/改动哪些卡
-  python3 -m ankicards derive plan    --deck <deck> --out plan_derive.json [--ingest <清单>] [--strict] [--dry-run]
-  python3 -m ankicards derive check   plan_derive.json --deck <deck>
-  python3 -m ankicards derive compile plan_derive.json --deck <deck> --out dist/<deck>-派生
-  python3 -m ankicards derive packet  --deck <deck> --out packet.json --limit 50
-  python3 -m ankicards derive merge   plan_derive.json --deck <deck> --candidates candidates.json
   ```
   有 error 时 `compile` 拒绝写盘。`quote` 只留在 plan 里，不写进卡片（Anki 字段固定）。
+  从**已发布牌组**出填空题/选择题是另一条线，见 §派生题；两条线的 plan 契约不同，不要混用。
 - 手写：卡片写进 `<deck>/cards/*.json`，一卡一问。
 - PDF 用 `pages`；跨页段落写 `page:N-M`（`plan compile` 会写成 `pages:[N, M]`，背面同时显示两页）；非 PDF 用 `source`；`source_kind=docx` 时 `source` 必须是 `para:N` / `para:N-M` / `table:T/rR`，`source_kind=txt` 时必须是 `line:N` 或 `line:N-M`，`source_kind=web` 时必须是 `block:N` 或 `block:N-M`，并与 ingest 对齐（区间必须整体出现在 ingest 里，起点不能大于终点）。
 - 图片题先在 `crops.json` 写 `page` + `rect`。
@@ -242,7 +239,7 @@ python3 -m ankicards verify output/xxx.apkg
 
 全部能力都在 CLI 里，没有隐藏入口；`python3 -m ankicards <命令> --help` 是参数唯一真值。
 agent 的标准链路：`precheck → plan check → plan compile → check → build → verify`。
-`python3 -m ankicards --version` 打印版本号（0.4.0）。
+`python3 -m ankicards --version` 打印版本号（写文档时是 0.4.6，以实际输出为准）。
 
 | 命令 | 用途 | 备注 |
 |---|---|---|
@@ -252,7 +249,7 @@ agent 的标准链路：`precheck → plan check → plan compile → check → 
 | `python3 scripts/precheck.py --ingest <清单>` | 可卡性预检：编号点/数字句/段长/引号/表格行 | PDF 先按行拆再算（按页算会把比例稀释成 0%）；只给选路建议，不改仓库 |
 | `python3 -m ankicards plan check <plan.json> --ingest <清单> [--also <另一格式清单>] [--profile manual\|novel\|essay] [--density manual\|novel\|essay]` | 校验引用锚定/理由枚举/覆盖率/密度/跨格式一致性/剧透 | 每条卡必须有 `quote`；数字按数值比对（「三天」=「3 天」），写法不同只提示；同一定位可以出多张卡，但 `quote` 不得重叠；`--min-coverage` 设分组覆盖率下限；`--density` 只提示密度与卡型配额（不拦编译）；`--also` 拿 quote 去另一种格式里重找，验证内容一致 |
 | `python3 -m ankicards plan compile <plan.json> --out <deck> --ingest <清单> [--profile ...] [--density ...] [--with-key] [--incremental]` | 校验通过才写牌组 | 有 error 不写盘；同时写 `import-report.json`（未出卡理由 + 内容规则）；`--with-key` 生成稳定身份；`--incremental` 并进已有牌组（按 key 替换、按 `retired` 下架、其余保留） |
-| `python3 -m ankicards derive plan/check/compile/report/packet/merge` | 从已发布牌组派生填空题与选择题 | 源牌组只读；先出 plan 再编译；`--options 3–5`、`--distractor-source same-deck/local/hybrid/none`；模型候选走 `packet → merge → check --allow-model`，1 正确 + 2 模型用 `--options 3` + `--prefer-model`，选项满了用 `--replace-same-deck`，编译要 `--allow-model-distractors`；`--strict` 正确项必须锚定题干实体（默认关，私人手册用） |
+| `python3 -m ankicards derive plan/check/compile/contrast/review/report/packet/merge` | 从已发布牌组派生填空题、选择题与对比题 | 源牌组只读；先出 plan 再编译；`--options 3–5`、`--distractor-source same-deck/local/hybrid/none`；模型候选走 `packet → merge → check --allow-model`，1 正确 + 2 模型用 `--options 3` + `--prefer-model`，选项满了用 `--replace-same-deck`，编译要 `--allow-model-distractors`；`--strict` 正确项必须锚定题干实体（默认关，私人手册用）；`contrast` 生成卡内条目对比题，`review` 出离线复核页 |
 | `python3 -m ankicards plan diff <plan.json> --deck <deck>` | 对比 plan 与现有牌组 | 按归一后的卡面文本比对，报告新增/删除/改动；退出码恒为 0 |
 | `python3 -m ankicards check <deck>` | 数据契约校验 | 加 `--pdf` 查页码/裁图；加 `--ingest` 开溯源闸门；`--txt`/`--docx`/`--html` 做同源校验 |
 | `python3 -m ankicards build <deck> --out x.apkg` | 构建 apkg | 有图片题必须 `--pdf`；引用 pages/docx/txt/web 定位必须 `--ingest` |
