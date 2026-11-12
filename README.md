@@ -499,7 +499,7 @@ python3 -m ankicards check  /tmp/web-deck --ingest .work/ingest/example_com-arti
 - **需要真实相机/PDF 才能复现的牌组**：同时加一份合成 fixture，否则 CI 无法回归。
 - **新格式**：写一个适配器（`@register`）产出 `DeckData`，禁止再新增一个独立生成脚本。
 
-### 发布与可复现构建（v0.4.5）
+### 发布与可复现构建（v0.4.6）
 
 发布物不再直接上传仓库里某个历史时点的 `output/*.apkg`，而是由 tag 指向的源码重建：
 
@@ -515,7 +515,7 @@ python3 scripts/apkg_identity.py old.apkg new.apkg
 - `.github/workflows/release.yml` 在 `v*` tag 上执行 `import → build → verify → --check-golden`，只上传 `dist/Android.apkg`、`dist/MQTT.apkg`。
 - `.github/workflows/verify.yml` 的 `public-decks` job 在每次 push/PR 重建并校验同一份 golden。
 - v0.3.2 的 P0 证据（旧包与 HEAD 重建的 0/1270、0/200 对比）见 [`docs/evidence/v0.3.2-release-identity.md`](docs/evidence/v0.3.2-release-identity.md)。
-- 0.4.0 / 0.4.1 / 0.4.2 / 0.4.3 / 0.4.4 / 0.4.5 的变更清单与验证记录见 [`CHANGELOG.md`](CHANGELOG.md)。
+- 0.4.0 / 0.4.1 / 0.4.2 / 0.4.3 / 0.4.4 / 0.4.5 / 0.4.6 的变更清单与验证记录见 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ### CI/CD
 
