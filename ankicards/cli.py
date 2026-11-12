@@ -399,6 +399,17 @@ def cmd_derive_contrast(args) -> int:
     return 0
 
 
+def cmd_derive_review(args) -> int:
+    from .review import write_review
+
+    out, counts = write_review(args.plan, args.deck, args.out)
+    print(
+        f"写出 {out}（选择 {counts['choice']} / 填空 {counts['cloze']} / 对比 {counts['contrast']}；"
+        f"可疑 {counts['flagged']}，其中硬伤 {counts['bad']}）"
+    )
+    return 0
+
+
 def cmd_derive_report(args) -> int:
     from .derive import _options_of, load_derived_plan
 
@@ -719,6 +730,12 @@ def main(argv: list[str] | None = None) -> int:
     p_derive_contrast.add_argument("--out", default="plan_contrast.json", help="输出 plan（默认 plan_contrast.json）")
     p_derive_contrast.add_argument("--limit", type=int, default=60, help="最多折多少张")
     p_derive_contrast.set_defaults(func=cmd_derive_contrast)
+
+    p_derive_review = derive_sub.add_parser("review", help="生成派生题的人工复核页（单文件 HTML，可离线打开）")
+    p_derive_review.add_argument("plan", help="plan_derive.json 路径")
+    p_derive_review.add_argument("--deck", required=True, help="源牌组目录（用于显示源卡原文）")
+    p_derive_review.add_argument("--out", help="输出 HTML（默认与 plan 同目录、同名 .review.html）")
+    p_derive_review.set_defaults(func=cmd_derive_review)
 
     p_derive_report = derive_sub.add_parser("report", help="逐条打印派生 plan，供人审")
     p_derive_report.add_argument("plan", help="plan_derive.json 路径")

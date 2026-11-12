@@ -314,6 +314,7 @@ agent 的标准链路：`precheck → plan check → plan compile → check → 
   python3 -m ankicards derive plan   --deck data/Android --ingest .work/ingest/x.json --out plan_derive.json
   python3 -m ankicards derive check  plan_derive.json --deck data/Android
   python3 -m ankicards derive report plan_derive.json | head -40
+  python3 -m ankicards derive review plan_derive.json --deck <deck> --out review.html  # 单文件复核页
   python3 -m ankicards derive compile plan_derive.json --deck data/Android --out dist/Android-派生
   ```
 

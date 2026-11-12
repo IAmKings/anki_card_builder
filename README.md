@@ -314,6 +314,19 @@ python3 -m ankicards derive check plan_derive.json --deck dist/Android面试 --a
 - `derive check` 对含模型候选的卡片出「需人工复审」提示；`derive compile` 必须显式加
   `--allow-model-distractors`，否则拒绝写盘。
 
+### 复核页（可选）
+
+编译前想快速扫一遍派生题，生成一张单文件 HTML：
+
+```bash
+python3 -m ankicards derive review plan_derive.json --deck dist/Android面试 --out review.html
+```
+
+浏览器直接打开，不联网、不上传。页面上可以按类型/可疑/关键词过滤，选择题会标出正确项与选项长度比，
+填空题高亮挖空；每张卡可标「通过 / 可疑 / 错误」并写备注，标记存在浏览器 localStorage，点「导出标记」得到
+`*-review-marks.json`，方便回头改 plan 或抽查。默认自带的可疑标记包括：选项长度比 >1.8、重复选项、
+正确项过短、题干多个问号、只挖数字、挖空过短、引用过短等。
+
 ### 语义干扰项池（可选，M2）
 
 `scripts/semantic_map.py` 会顺带写出 `seeds.json`（卡片的语义邻居）。把它交给 `derive`，
