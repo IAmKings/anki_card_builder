@@ -1,0 +1,60 @@
+name: Pages
+
+# 只发布静态宣传页；构建产物就是 site/ 目录本身，不需要任何打包步骤。
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "site/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 检查站点文件
+        run: |
+          test -f site/index.html
+          test -f site/style.css
+          test -f site/main.js
+          python3 - <<'PY'
+          import pathlib, re, sys
+
+          root = pathlib.Path("site")
+          html = (root / "index.html").read_text(encoding="utf-8")
+          refs = set(re.findall(r'(?:src|href)="([^"#?]+)"', html))
+          missing = [
+              ref for ref in refs
+              if not ref.startswith(("http://", "https://", "mailto:", "//"))
+              and not (root / ref).exists()
+          ]
+          if missing:
+              print("缺失的本地资源：", *missing, sep="\n  ")
+              sys.exit(1)
+          print(f"本地资源引用 {len(refs) - len([r for r in refs if r.startswith(('http', 'mailto:', '//'))])} 个，全部存在")
+          PY
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
