@@ -130,18 +130,32 @@ python3 -m ankicards derive compile plan_derive.json --deck data/Android --out d
 
 ### 安装
 
+先准备仓库与依赖（skill 与 CLI 绑定，两种装法都要）：
+
 ```bash
 git clone https://github.com/IAmKings/anki_card_builder.git
 cd anki_card_builder
 python3 -m pip install -r requirements.txt          # PDF 截图/裁图另加 requirements-render.txt
-
-# 目录名必须与 SKILL.md 的 name 一致，都是 anki-card-builder；示例路径，以客户端文档为准
-cp -R skills/anki-card-builder ~/.agents/skills/
-
 python3 -m ankicards --version                      # 写文档时为 0.4.6，以实际输出为准
 ```
 
-skill 不是独立包：它依赖本仓库的 `ankicards` 代码、Python 3.12 与 `requirements.txt`，所有命令从仓库根目录运行。完整说明（依赖表、数据安全、更新方式）见 [`skills/README.md`](skills/README.md)。
+再把 skill 交给 agent，任选一种。
+
+用 [`npx skills add`](https://github.com/vercel-labs/skills)（需要 Node.js ≥ 22.20；默认装到当前项目的 `.agents/skills/`，加 `-g` 装到用户目录、跨项目可用）：
+
+```bash
+npx skills add IAmKings/anki_card_builder --skill anki-card-builder -a claude-code -y
+```
+
+不带参数运行会交互式选择 skill 与客户端；`-a` 可取值如 `claude-code`、`codex`、`cursor`，完整列表见 `npx skills --help`。升级用 `npx skills update`。
+
+或手动复制（不需要 Node）：目录名必须与 `SKILL.md` 的 `name` 一致，都是 `anki-card-builder`；`~/.agents/skills/` 是示例路径，以客户端文档为准。
+
+```bash
+cp -R skills/anki-card-builder ~/.agents/skills/
+```
+
+两条路装进去的都只是说明文件，不含 `ankicards` 代码：它依赖本仓库的 `ankicards`、Python 3.12 与 `requirements.txt`，所有命令从仓库根目录运行。完整说明（依赖表、数据安全、更新方式）见 [`skills/README.md`](skills/README.md)。
 
 ### skill 里固定了什么
 

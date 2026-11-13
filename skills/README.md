@@ -4,26 +4,42 @@
 
 ## 安装 `anki-card-builder`
 
-1. 复制整个 `skills/anki-card-builder/` 目录到目标 agent 的 skills 目录（例如 `~/.agents/skills/`，具体以客户端文档为准）。
-2. 保持目录名为 `anki-card-builder`：`SKILL.md` 里的 `name` 必须与目录同名。
-3. 这个 skill 不是独立可执行包，依赖本仓库的 `ankicards` 代码。先准备仓库与依赖：
+两种方式，任选其一。
 
-   ```bash
-   git clone <this-repo>
-   cd anki_card_builder
-   python3 -m pip install -r requirements.txt
+**A. 用 `npx skills add`**（需要 Node.js ≥ 22.20）：
 
-   # 处理 PDF（ingest / 页面截图 / 裁图）时还需要：
-   python3 -m pip install -r requirements-render.txt
-   ```
+```bash
+# 默认装到当前项目的 .agents/skills/；加 -g 装到用户目录，跨项目可用
+npx skills add IAmKings/anki_card_builder --skill anki-card-builder -a claude-code -y
+```
 
-4. 所有命令从仓库根目录运行。agent 的工作目录不在仓库根时，先 `cd` 过去，或把仓库根加入 `PYTHONPATH`。
-5. 验证安装：
+`-a` 指定客户端（如 `claude-code`、`codex`、`cursor`），完整取值见 `npx skills --help`；不带参数运行会交互式选择 skill 与客户端。用这种方式装的副本用 `npx skills update` 升级。
 
-   ```bash
-   python3 -m ankicards --help
-   python3 -m unittest discover -s tests
-   ```
+**B. 手动复制**（不需要 Node）：
+
+- 复制整个 `skills/anki-card-builder/` 目录到目标 agent 的 skills 目录（例如 `~/.agents/skills/`，具体以客户端文档为准）。
+- 保持目录名为 `anki-card-builder`：`SKILL.md` 里的 `name` 必须与目录同名。
+
+### 准备仓库与依赖
+
+两种方式都只装说明文件，不含 `ankicards` 代码，所以先准备仓库与依赖：
+
+```bash
+git clone <this-repo>
+cd anki_card_builder
+python3 -m pip install -r requirements.txt
+
+# 处理 PDF（ingest / 页面截图 / 裁图）时还需要：
+python3 -m pip install -r requirements-render.txt
+```
+
+- 所有命令从仓库根目录运行。agent 的工作目录不在仓库根时，先 `cd` 过去，或把仓库根加入 `PYTHONPATH`。
+- 验证安装：
+
+  ```bash
+  python3 -m ankicards --help
+  python3 -m unittest discover -s tests
+  ```
 
 ## 依赖与运行环境
 
@@ -45,8 +61,10 @@
 
 ## 更新
 
+用 `npx skills add` 装的副本：
+
 ```bash
-git pull
+npx skills update anki-card-builder
 ```
 
-然后用仓库里最新的 `skills/anki-card-builder/` 覆盖目标 agent 的旧副本。skill 的行为与仓库 CLI 绑定；升级仓库后不要保留旧 skill 副本。
+手动复制的副本先 `git pull`，然后用仓库里最新的 `skills/anki-card-builder/` 覆盖目标 agent 的旧副本。skill 的行为与仓库 CLI 绑定；升级仓库后不要保留旧 skill 副本。

@@ -309,8 +309,16 @@ img { max-width: 100%; }
   color: var(--muted);
   max-width: 78ch;
 }
+.footnote a {
+  color: var(--blue);
+  text-decoration: underline;
+  text-decoration-color: rgba(31, 79, 216, .45);
+  text-underline-offset: 2px;
+}
+.footnote a:hover { text-decoration-color: var(--blue); }
 .footnote code,
 .lead code,
+.skill-install-lead code,
 .gate code,
 .faq-item code,
 .table-scroll code,
@@ -592,7 +600,12 @@ img { max-width: 100%; }
   border-radius: 5px;
   white-space: nowrap;
 }
-.skill-code { margin-top: 30px; }
+.skill-install-lead {
+  margin: 30px 0 12px;
+  font-size: 14.5px;
+  color: var(--muted);
+}
+.skill-code { margin-top: 14px; }
 
 /* ---------- 牌组 ---------- */
 
