@@ -310,6 +310,7 @@ img { max-width: 100%; }
   max-width: 78ch;
 }
 .footnote code,
+.lead code,
 .gate code,
 .faq-item code,
 .table-scroll code,
@@ -560,6 +561,38 @@ img { max-width: 100%; }
 /* ---------- 快速开始 ---------- */
 
 .start-code { margin-top: 26px; }
+
+/* ---------- Agent skill ---------- */
+
+.skill-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 30px;
+}
+.skill-card {
+  padding: 22px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+}
+.skill-card h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 700;
+}
+.skill-card p { margin: 0; font-size: 14.5px; color: var(--muted); }
+.skill-card code {
+  font-family: var(--mono);
+  font-size: .9em;
+  background: var(--bg-sunk);
+  color: #5A5148;
+  padding: 1px 6px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+.skill-code { margin-top: 30px; }
 
 /* ---------- 牌组 ---------- */
 
@@ -839,6 +872,7 @@ td:first-child { color: var(--ink); font-weight: 600; }
   .trace-grid,
   .deck-grid,
   .gates-grid,
+  .skill-grid,
   .panel { grid-template-columns: minmax(0, 1fr); }
   .panel { gap: 26px; }
   .flow-figure { max-width: 460px; }

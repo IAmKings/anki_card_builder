@@ -2,12 +2,13 @@
 
 # Anki 卡组生成器
 
-把 PDF / DOCX / TXT / HTML / EPUB 变成**可溯源**的 Anki 卡组：每张卡都带原文定位，答案里的关键信息必须能在引用里逐字找到。仓库同时发布公开牌组，并提供从已发布牌组**派生填空题 / 选择题 / 对比题**的工具链。
+把 PDF / DOCX / TXT / HTML / EPUB 变成**可溯源**的 Anki 卡组：每张卡都带原文定位，答案里的关键信息必须能在引用里逐字找到。仓库同时发布公开牌组，并提供从已发布牌组**派生填空题 / 选择题 / 对比题**的工具链；另附一份可直接安装的 **agent skill**，让 agent 按同一套流程与红线调用这套工具链。
 
 - 公开牌组下载：[Releases](../../releases)
 - 宣传页（做得更细的介绍）：<https://iamkings.github.io/anki_card_builder/>
 - 工具链入口：`python3 -m ankicards`（`--help` 是命令真值）
-- 流程与判断标准：[`skills/anki-card-builder/SKILL.md`](skills/anki-card-builder/SKILL.md)
+- Agent skill（可直接安装）：[`skills/anki-card-builder/SKILL.md`](skills/anki-card-builder/SKILL.md)——流程与判断标准都写在这里
+- skill 安装、依赖与更新：[`skills/README.md`](skills/README.md)
 - 失败模式与预检阈值：[`docs/extraction-policy.md`](docs/extraction-policy.md)
 
 ## 快速开始
@@ -121,6 +122,44 @@ python3 -m ankicards derive compile plan_derive.json --deck data/Android --out d
 - **溯源强制**：引用 `pages` / DOCX / TXT / Web / EPUB 定位的牌组，`check`、`build`、`preview` 都必须带 `--ingest`。
 - **同源校验**：同时给 `--pdf/--docx/--txt/--html/--epub` 与 `--ingest` 时比对 `source_sha256`，不一致直接 exit 2。
 
+## Agent skill
+
+仓库根目录的 [`skills/anki-card-builder/`](skills/anki-card-builder/SKILL.md) 是一份可以直接安装的 agent skill。`SKILL.md` 带 YAML frontmatter（`name` / `description`），客户端按 `description` 判断什么时候加载它。
+
+装上之后，agent 拿到的不是一句「帮我做 Anki 卡」，而是本仓库的工作契约：什么时候不该做、先问哪三个问题、哪条路径禁止走、每步做到什么算完成、交付前验什么。确定性的校验仍在 CLI 里，skill 只负责判断与顺序。
+
+### 安装
+
+```bash
+git clone https://github.com/IAmKings/anki_card_builder.git
+cd anki_card_builder
+python3 -m pip install -r requirements.txt          # PDF 截图/裁图另加 requirements-render.txt
+
+# 目录名必须与 SKILL.md 的 name 一致，都是 anki-card-builder；示例路径，以客户端文档为准
+cp -R skills/anki-card-builder ~/.agents/skills/
+
+python3 -m ankicards --version                      # 写文档时为 0.4.6，以实际输出为准
+```
+
+skill 不是独立包：它依赖本仓库的 `ankicards` 代码、Python 3.12 与 `requirements.txt`，所有命令从仓库根目录运行。完整说明（依赖表、数据安全、更新方式）见 [`skills/README.md`](skills/README.md)。
+
+### skill 里固定了什么
+
+| 部分 | 内容 |
+|---|---|
+| 触发与边界 | 什么时候该用；什么时候直接拒绝（扫描件、MOBI/AZW、加密文件、需要登录或 JS 渲染的网页） |
+| 三条硬性红线 | 散文/手册/讲义禁止走 `*-points` 适配器；agent 不得直接写 `cards/*.json`，只能写带逐字 `quote` 的 `plan.json`；已发布牌组不重跑抽取 |
+| 准入 | 先问清用途、验收方式、是否防剧透；四条停问红线：用途缺失、形态与用途冲突、覆盖率异常、抽样失败率 >30% |
+| 路径与卡型 | 先判文档形态再选路径；五种抽取卡型（`claim` / `style` / `phrase` / `fact` / `procedure`），三档密度（`manual` / `novel` / `essay`） |
+| 工作流 | 确认输入 → 可卡性预检 → 出定位 → 写卡 → 裁图自检 → `check` / `build` / `verify` → 事实校对，每一步都写了完成标准 |
+| 交付验收 | `check` / `verify` 0 error、连续两次构建身份一致、抽样自答 10 张、事实校对基准可复述 |
+
+### 边界
+
+- 装 skill 不会让工具多出能力：支持范围与限制仍以 [`docs/extraction-policy.md`](docs/extraction-policy.md) 和 `python3 -m ankicards --help` 为准。
+- 不做 OCR、不破加密、不抓需要登录或 JS 渲染的页面；也不承诺把任意散文零判断地抽成卡。
+- 升级仓库后，用最新的 `skills/anki-card-builder/` 覆盖旧副本——skill 与 CLI 绑定，不要留旧版本。
+
 ## 命令参考
 
 | 命令 | 用途 |
@@ -216,7 +255,7 @@ python3 scripts/apkg_identity.py old.apkg new.apkg               # 排查两个�
 
 ```
 ankicards/        # schema（契约）、build、verify、preview、ingest、epub、grouping、precheck、quality、plan、derive、review、adapters、cli
-skills/           # agent 流程说明
+skills/           # 可安装的 agent skill（SKILL.md + 安装说明）
 scripts/          # precheck、semantic_map、发布与身份核对
 tests/            # 契约、规则、发布身份回归
 data/Android/     # 公开题库（MD）与派生输入 contrast.json

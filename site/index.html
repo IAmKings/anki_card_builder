@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Anki 卡组生成器 · 把知识，做成记忆。</title>
-<meta name="description" content="把 PDF / DOCX / TXT / HTML / EPUB 变成可溯源的 Anki 卡组：每张卡都带原文定位，答案里的关键信息必须能在引用里逐字找到。">
+<meta name="description" content="把 PDF / DOCX / TXT / HTML / EPUB 变成可溯源的 Anki 卡组：每张卡都带原文定位；仓库另附可直接安装的 agent skill，让 agent 按同一套流程与红线做卡组。">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <meta name="theme-color" content="#FAF7F2">
 <meta name="color-scheme" content="light">
@@ -37,6 +37,7 @@
       <a href="#trace">可溯源</a>
       <a href="#flow">两条流程</a>
       <a href="#start">快速开始</a>
+      <a href="#skill">Agent skill</a>
       <a href="#decks">牌组</a>
       <a href="#gates">质量闸</a>
       <a class="nav-gh" href="https://github.com/IAmKings/anki_card_builder" rel="noopener">
@@ -203,6 +204,48 @@ python3 -m ankicards verify dist/新牌组.apkg</code></pre>
     </div>
   </section>
 
+  <!-- Agent skill -->
+  <section class="section" id="skill" aria-labelledby="skill-title">
+    <div class="wrap">
+      <p class="eyebrow">Agent skill</p>
+      <h2 id="skill-title">这套流程，已经写成一个能装进 agent 的 skill</h2>
+      <p class="lead">仓库根目录的 <code>skills/anki-card-builder/</code> 是一份标准 skill：<code>SKILL.md</code> 带 <code>name</code> 与 <code>description</code> 的 frontmatter，客户端据此决定什么时候加载它。加载后 agent 拿到的不是一句「帮我做 Anki 卡」，而是完整的判断顺序与硬性红线。</p>
+
+      <div class="skill-grid">
+        <div class="skill-card">
+          <h3>三条红线写在最前面</h3>
+          <p>散文、手册、讲义禁止走 <code>*-points</code> 适配器；agent 不得直接写 <code>cards/*.json</code>，只能写带逐字 <code>quote</code> 的 <code>plan.json</code>；已发布牌组不重跑抽取。</p>
+        </div>
+        <div class="skill-card">
+          <h3>先问用途，再动手</h3>
+          <p>准入三问：给谁背、怎么算通过、要不要防剧透。再叠加四条停问红线，形态与用途一起决定卡型、密度和验收方式。</p>
+        </div>
+        <div class="skill-card">
+          <h3>每一步都有完成标准</h3>
+          <p>从可卡性预检到抽样自答，工作流逐段写明「什么算完成」；命令与参数以 <code>--help</code> 为唯一真值，skill 只写流程与判断。</p>
+        </div>
+      </div>
+
+      <div class="code-wrap skill-code">
+        <div class="code-head">
+          <span>安装到 agent</span>
+          <button class="copy" type="button" data-copy-target="skill-code">复制</button>
+        </div>
+<pre class="code" id="skill-code"><code>git clone https://github.com/IAmKings/anki_card_builder.git
+cd anki_card_builder
+python3 -m pip install -r requirements.txt
+# PDF 截图 / 裁图另加：python3 -m pip install -r requirements-render.txt
+
+# 目录名必须与 SKILL.md 的 name 一致；~/.agents/skills 是示例路径，以客户端文档为准
+cp -R skills/anki-card-builder ~/.agents/skills/
+
+python3 -m ankicards --version</code></pre>
+      </div>
+
+      <p class="footnote">skill 不是独立包：它依赖本仓库的 <code>ankicards</code> 代码、Python 3.12 与 <code>requirements.txt</code>，所有命令从仓库根目录运行。安装细节、依赖表与更新方式见 <a href="https://github.com/IAmKings/anki_card_builder/blob/master/skills/README.md" rel="noopener">skills/README.md</a>。</p>
+    </div>
+  </section>
+
   <!-- 牌组 -->
   <section class="section" id="decks" aria-labelledby="decks-title">
     <div class="wrap">
@@ -339,6 +382,7 @@ python3 -m ankicards verify dist/新牌组.apkg</code></pre>
     </div>
     <nav class="footer-links" aria-label="相关链接">
       <a href="https://github.com/IAmKings/anki_card_builder" rel="noopener">仓库</a>
+      <a href="https://github.com/IAmKings/anki_card_builder/blob/master/skills/anki-card-builder/SKILL.md" rel="noopener">Agent skill</a>
       <a href="https://github.com/IAmKings/anki_card_builder/releases" rel="noopener">Releases</a>
       <a href="https://github.com/IAmKings/anki_card_builder/blob/master/CHANGELOG.md" rel="noopener">CHANGELOG</a>
       <a href="https://github.com/IAmKings/anki_card_builder/blob/master/README.md" rel="noopener">README</a>
